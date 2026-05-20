@@ -1,0 +1,21 @@
+# Dependency directories
+node_modules/
+
+# Environment variables
+.env
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS metadata files
+.DS_Store
+Thumbs.db
+
+# IISNode log files
+src/iisnode/*.txt
+src/iisnode_logs/*.txt
+
