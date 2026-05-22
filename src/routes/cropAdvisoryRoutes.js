@@ -5,6 +5,7 @@ const router = express.Router();
 const contingencyCropPlanController = require('../controllers/contingencyCropPlanController');
 
 // router.get('/crop_advisory', cropAdvisoryController.getCropAdvisory);
-router.get('/crop_advisory', contingencyCropPlanController.getContingencyCropPlan);
+router.get('/', contingencyCropPlanController.getContingencyCropPlan);
+router.get('/period_info', contingencyCropPlanController.getCropPeriodInfo);
 
 module.exports = router; 
