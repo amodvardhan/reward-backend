@@ -182,10 +182,14 @@ const ContingencyCropPlan = {
       }
 
       const sql = `
-        SELECT CROP_TYPE, CROP_DURATION, SOWING_MONTH, CROP_ID
-        FROM KSNDMC.REWARD_CROP_VARIETY_DURATION
-        WHERE UPPER(CROP_NAME) = UPPER(:dbCrop)
-          AND UPPER(REGION_CODE) LIKE '%' || UPPER(:regionCode) || '%'
+        SELECT COALESCE(m.CROP_TYPE, vd.CROP_TYPE) AS CROP_TYPE, vd.CROP_DURATION, vd.SOWING_MONTH, vd.CROP_ID
+        FROM KSNDMC.REWARD_CROP_VARIETY_DURATION vd
+        LEFT JOIN (
+          SELECT DISTINCT CROP_ID, CROP_TYPE 
+          FROM KSNDMC.REWARD_CROP_MASTER
+        ) m ON m.CROP_ID = vd.CROP_ID
+        WHERE UPPER(vd.CROP_NAME) = UPPER(:dbCrop)
+          AND UPPER(vd.REGION_CODE) LIKE '%' || UPPER(:regionCode) || '%'
           AND rownum <= 1
       `;
       

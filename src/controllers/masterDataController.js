@@ -313,13 +313,32 @@ exports.getCropMaster = async (req, res) => {
     let connection;
     try {
         connection = await getConnection();
-        const sql = `SELECT DISTINCT CROP_NAME_KN AS name, CROP_ID AS id, CROP_NAME AS english_name, REGION_CODE AS region_code FROM KSNDMC.REWARD_CROP_MASTER ORDER BY CROP_NAME_KN`;
-        const result = await connection.execute(sql, [], { outFormat: oracledb.OUT_FORMAT_OBJECT });
+
+        const regionCode = req.query.region_code || req.query.REGION_CODE;
+        const cropType = req.query.crop_type || req.query.CROP_TYPE;
+
+        let sql = `SELECT DISTINCT CROP_NAME_KN AS name, CROP_ID AS id, CROP_NAME AS english_name, REGION_CODE AS region_code, CROP_TYPE AS crop_type FROM KSNDMC.REWARD_CROP_MASTER WHERE 1=1`;
+        const binds = {};
+
+        if (regionCode) {
+            sql += ` AND UPPER(REGION_CODE) LIKE '%' || UPPER(:region_code) || '%'`;
+            binds.region_code = regionCode;
+        }
+
+        if (cropType) {
+            sql += ` AND UPPER(CROP_TYPE) = UPPER(:crop_type)`;
+            binds.crop_type = cropType;
+        }
+
+        sql += ` ORDER BY CROP_NAME_KN`;
+
+        const result = await connection.execute(sql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
         const crops = result.rows.map(row => ({
             name: row.NAME,
             id: row.ID,
             english_name: row.ENGLISH_NAME,
-            region_code: row.REGION_CODE
+            region_code: row.REGION_CODE,
+            crop_type: row.CROP_TYPE
         }));
         return ApiResponse.collection(res, 'Crop master retrieved successfully', crops);
     } catch (err) {
