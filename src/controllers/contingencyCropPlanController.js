@@ -2,6 +2,19 @@
 const ContingencyCropPlan = require('../models/contingencyCropPlan');
 const ApiResponse = require('../utils/ApiResponse');
 
+const HORTI_WEEKS_CROPS = [
+  'TOMATO', 'BRINJAL', 'CHILLI', 'CHILLIES', 'CHILLYS', 'POTATO', 'ONION', 'PUMPKIN',
+  'FRENCH BEAN', 'FRENCH BEANS', 'BEANS', 'SWEAT POTATO', 'SWEET POTATO', 'BANANA',
+  'GINGER', 'TURMERIC', 'CUCUMBER', 'CABBAGE'
+];
+
+const HORTI_MONTHS_CROPS = [
+  'MANGO', 'GRAPES', 'POMEGRANATE', 'GUAVA', 'SAPOTA', 'JACKFRUIT', 'PAPAYA',
+  'COCONUT', 'ARECA NUT', 'ARECANUT', 'CASHEW NUT', 'CASHEWNUT', 'CASHEW',
+  'BLACK PEPPER', 'CARDAMOM', 'LEMON', 'BETELVINE', 'BEETLEVINE', 'DRUMSTICK'
+];
+
+
 /**
  * Get contingency crop plan for a district and date (handles YES/NO sown condition)
  */
@@ -27,66 +40,20 @@ exports.getContingencyCropPlan = async (req, res) => {
     const isSownYes = sown && sown.toUpperCase() === 'YES';
 
     if (!isSownYes) {
-      // ----------------------------------------------------
-      // SOWN "NO" FLOW (or default)
-      // ----------------------------------------------------
-      let targetDistrict = district;
-      
-      // Resolve district if missing and mobileNo is provided
-      if (!targetDistrict && mobileNo) {
-        const farmer = await ContingencyCropPlan.getFarmerByMobileNo(mobileNo);
-        if (farmer) {
-          targetDistrict = farmer.district;
-        }
-      }
-
-      if (!targetDistrict) {
-        console.log(`[${new Date().toISOString()}] ContingencyCropPlan validation failed: missing district`);
-        return ApiResponse.error(res, 400, 'Missing required parameter: district or mobileNo');
-      }
-
-      // Parse date robustly, default to current system date if not passed
-      let parsedDate = null;
-      if (targetDateStr) {
-        parsedDate = parseDate(targetDateStr);
-        if (!parsedDate) {
-          console.log(`[${new Date().toISOString()}] ContingencyCropPlan validation failed: invalid date format: ${targetDateStr}`);
-          return ApiResponse.error(res, 400, 'Invalid date format. Supported formats include YYYY-MM-DD, DD-MM-YYYY, and DD-MM-YY');
-        }
-      } else {
-        parsedDate = new Date();
-      }
-
-      console.log(`[${new Date().toISOString()}] Fetching contingency crop plan for district: ${targetDistrict}, date: ${parsedDate.toISOString()}`);
-      const plan = await ContingencyCropPlan.getPlanByDistrictAndDate({ district: targetDistrict, date: parsedDate });
-
-      if (!plan) {
-        console.log(`[${new Date().toISOString()}] Contingency crop plan not found for the parameters`);
-        return ApiResponse.error(res, 404, 'Contingency crop plan not available for the given district and date');
-      }
-
-      console.log(`[${new Date().toISOString()}] Contingency crop plan retrieved successfully`);
-      return ApiResponse.ok(res, 'Contingency crop plan retrieved successfully', plan);
+      return await handleSownNo(req, res, district, mobileNo, targetDateStr);
     }
 
-    // ----------------------------------------------------
-    // SOWN "YES" FLOW
-    // ----------------------------------------------------
-    console.log(`[${new Date().toISOString()}] Processing Yes condition for crop advisory...`);
-    
-    // 1. Resolve farmer details if mobileNo is provided
+    // Resolve farmer and target parameters
     let farmer = null;
     if (mobileNo) {
       farmer = await ContingencyCropPlan.getFarmerByMobileNo(mobileNo);
     }
 
-    // 2. Resolve target parameters
     const targetCrop = crop || (farmer && farmer.crop_name);
     const targetTrgCode = trg_code || (farmer && farmer.trgcode);
     const targetHobliCode = hobli_code || (farmer && farmer.hobli_code);
-    const targetHobli = hobli || (farmer && farmer.hobliname);
     const targetDistrict = district || (farmer && farmer.district);
-    const targetDistrictCode = district || (farmer && farmer.districtcode); // Fallback to district if code missing
+    const targetDistrictCode = district || (farmer && farmer.districtcode);
 
     if (!targetCrop) {
       return ApiResponse.error(res, 400, 'Missing required parameter: crop');
@@ -101,13 +68,11 @@ exports.getContingencyCropPlan = async (req, res) => {
       return ApiResponse.error(res, 400, 'Invalid date format. Supported formats include YYYY-MM-DD, DD-MM-YYYY, and DD-MM-YY');
     }
 
-    // 3. Resolve Region (clean SIK/NIK)
     let cleanRegion = null;
     if (region) {
       cleanRegion = getCleanRegion(region);
     }
     if (!cleanRegion) {
-      // Find region from district
       const dbRegion = await ContingencyCropPlan.getRegionByDistrict({
         district: targetDistrict,
         districtCode: targetDistrictCode
@@ -117,163 +82,100 @@ exports.getContingencyCropPlan = async (req, res) => {
       }
     }
     if (!cleanRegion) {
-      cleanRegion = 'NIK'; // Default fallback if unable to resolve
+      cleanRegion = 'NIK';
     }
 
     console.log(`[${new Date().toISOString()}] Resolved parameters: Crop: ${targetCrop}, Region: ${cleanRegion}, Sowing Date: ${parsedShowingDate.toISOString()}`);
 
-    // 4. Verify crop type is strictly AGRICULTURE
+    // Determine crop type
     const cropDetails = await ContingencyCropPlan.getCropVarietyDuration(targetCrop, cleanRegion);
-    if (!cropDetails) {
-      return ApiResponse.error(res, 400, `Crop details not found for crop: ${targetCrop} in region: ${cleanRegion}`);
+    let cropType = '';
+    let resolvedCropId = null;
+    let resolvedCropDuration = '';
+
+    if (cropDetails) {
+      cropType = (cropDetails.crop_type || '').trim().toUpperCase();
+      resolvedCropId = cropDetails.crop_id || cropDetails.CROP_ID;
+      resolvedCropDuration = cropDetails.crop_duration || cropDetails.CROP_DURATION;
     }
 
-    const cropType = (cropDetails.crop_type || '').trim().toUpperCase();
-    if (cropType !== 'AGRICULTURE') {
-      return ApiResponse.error(res, 400, `Weather based advisory is strictly for Agriculture crops. Crop ${targetCrop} is ${cropType}`);
+    const upperCrop = targetCrop.toUpperCase().trim();
+    const isWeeksHorti = HORTI_WEEKS_CROPS.includes(upperCrop);
+    const isMonthsHorti = HORTI_MONTHS_CROPS.includes(upperCrop);
+
+    if (isWeeksHorti || isMonthsHorti || cropType === 'HORTICULTURE' || cropType === 'HORTI') {
+      cropType = 'HORTICULTURE';
     }
 
-    // 5. Fetch blocking period records and validate showing date
-    const blocking = await ContingencyCropPlan.getBlockingPeriod(targetCrop, cleanRegion);
-    if (!blocking) {
-      return ApiResponse.error(res, 400, `Blocking period configuration not found for crop ${targetCrop} in region ${cleanRegion}`);
+    if (!cropType) {
+      cropType = 'AGRICULTURE';
     }
 
-    const year = parsedShowingDate.getFullYear();
-    const ranges = parseSowingPeriod(blocking.sowing_period, year);
-
-    if (ranges.length === 0) {
-      return ApiResponse.error(res, 500, `Failed to parse sowing periods for crop ${targetCrop}: ${blocking.sowing_period}`);
-    }
-
-    // Evaluate sowing date against parsed ranges
-    let isWithinSowingRange = false;
-    let isWithinOpenRange = false;
-
-    for (const r of ranges) {
-      if (parsedShowingDate >= r.sowingStart && parsedShowingDate <= r.sowingEnd) {
-        isWithinSowingRange = true;
-        break;
+    if (cropType === 'HORTICULTURE') {
+      const today = new Date();
+      const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      
+      // Validate: Do not allow future sowing date
+      if (parsedShowingDate > todayDateOnly) {
+        return ApiResponse.error(res, 400, 'Sowing date cannot be a future date.');
       }
-    }
 
-    if (!isWithinSowingRange) {
-      for (const r of ranges) {
-        if (parsedShowingDate >= r.openStart && parsedShowingDate <= r.sowingEnd) {
-          isWithinOpenRange = true;
-          break;
+      // Resolve previous and next week rainfall category
+      let prevRainCategory = prevRainfall;
+      let nextRainCategory = nextRainfall;
+
+      if (!prevRainCategory || !nextRainCategory) {
+        const metrics = await ContingencyCropPlan.getRainfallMetrics({
+          hobliCode: targetHobliCode,
+          trgCode: targetTrgCode
+        });
+
+        const actualRain = metrics.actualRain;
+        const normalRain = metrics.normalRain;
+        const forecastRain = metrics.forecastRain;
+
+        const deviation = calculateDeviation(actualRain, normalRain);
+        const rainCategory = getDeviationCategory(deviation);
+
+        if (!prevRainCategory) prevRainCategory = rainCategory;
+        if (!nextRainCategory) nextRainCategory = forecastRain;
+
+        if (prevRainCategory === 'NORMAL') {
+          nextRainCategory = 'YES';
         }
       }
-    }
 
-    // Range-based branching
-    if (!isWithinSowingRange && !isWithinOpenRange) {
-      // Outside Open Period: Return blocked response
-      console.log(`[${new Date().toISOString()}] Sowing date ${formatDateLocal(parsedShowingDate)} is blocked.`);
-      return ApiResponse.ok(res, 'Sowing date is outside the allowed open period. Calendar blocked.', {
-        status: 'BLOCKED',
-        message: 'Sowing date is outside the allowed open period.'
-      });
-    }
-
-    if (!isWithinSowingRange && isWithinOpenRange) {
-      // Inside Open Period but before Sowing Period (Pre-Sowing): Return Kannada warning message
-      console.log(`[${new Date().toISOString()}] Sowing date is pre-sowing warning period.`);
-      const warningKn = fixKannadaGarbage(blocking.openperiod_msg);
-      return ApiResponse.ok(res, 'Pre-sowing warning', {
-        status: 'PRE_SOWING',
-        message: warningKn || 'Pre-sowing warning period',
-        openperiod_msg: warningKn || ''
-      });
-    }
-
-    // 6. Within Sowing Range: Run weather calculation
-    console.log(`[${new Date().toISOString()}] Sowing date is within sowing range. Running weather based calculations...`);
-    
-    // Calculate Days After Sowing (DAS)
-    const today = new Date();
-    const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    const sowingDateOnly = new Date(parsedShowingDate.getFullYear(), parsedShowingDate.getMonth(), parsedShowingDate.getDate());
-    const timeDiff = todayDateOnly.getTime() - sowingDateOnly.getTime();
-    const das = Math.floor(timeDiff / (1000 * 60 * 60 * 24));
-
-    let prevRainCategory = prevRainfall;
-    let nextRainCategory = nextRainfall;
-
-    if (!prevRainCategory || !nextRainCategory) {
-      const metrics = await ContingencyCropPlan.getRainfallMetrics({
-        hobliCode: targetHobliCode,
-        trgCode: targetTrgCode
-      });
-
-      const actualRain = metrics.actualRain;
-      const normalRain = metrics.normalRain;
-      const forecastRain = metrics.forecastRain;
-
-      const deviation = calculateDeviation(actualRain, normalRain);
-      const rainCategory = getDeviationCategory(deviation);
-
-      if (!prevRainCategory) prevRainCategory = rainCategory;
-      if (!nextRainCategory) nextRainCategory = forecastRain;
-
-      // Override: If Previous Week Rainfall is NORMAL, Next Week Forecast is YES
-      if (prevRainCategory === 'NORMAL') {
-        nextRainCategory = 'YES';
+      if (!isMonthsHorti) {
+        return await handleHortiWeeksAdvisory(req, res, {
+          targetCrop,
+          cleanRegion,
+          parsedShowingDate,
+          prevRainCategory,
+          nextRainCategory,
+          resolvedCropDuration
+        });
+      } else {
+        return await handleHortiMonthsAdvisory(req, res, {
+          targetCrop,
+          cleanRegion,
+          parsedShowingDate,
+          prevRainCategory,
+          nextRainCategory,
+          resolvedCropDuration
+        });
       }
+    } else {
+      return await handleAgricultureAdvisory(req, res, {
+        targetCrop,
+        cleanRegion,
+        parsedShowingDate,
+        targetTrgCode,
+        targetHobliCode,
+        prevRainfall,
+        nextRainfall,
+        cropDetails
+      });
     }
-
-    console.log(`[${new Date().toISOString()}] Rain Categories - Previous Week: ${prevRainCategory}, Forecast: ${nextRainCategory}, DAS: ${das}`);
-
-    // 7. Query FIELD_CROPS_ADVISORY
-    const sowingMonthNorm = normalizeSowingMonth(blocking.sowing_period);
-    const cropId = cropDetails.crop_id || cropDetails.CROP_ID;
-
-    const advisories = await ContingencyCropPlan.fetchFieldCropAdvisory({
-      cropName: targetCrop,
-      cropId: cropId,
-      sowingMonth: sowingMonthNorm,
-      prevRainfall: prevRainCategory,
-      nextRainfall: nextRainCategory,
-      regionCode: cleanRegion
-    });
-
-    // 8. Filter by DAS range in JS
-    let matchedAdvisory = null;
-    for (const adv of advisories) {
-      if (matchDas(das, adv.das_of_crop)) {
-        matchedAdvisory = adv;
-        break;
-      }
-    }
-
-    if (!matchedAdvisory) {
-      console.log(`[${new Date().toISOString()}] No crop advisory row matched for crop: ${targetCrop}, region: ${cleanRegion}, DAS: ${das}`);
-      return ApiResponse.error(res, 404, `No matching crop advisory found for crop ${targetCrop} in region ${cleanRegion} at ${das} DAS.`);
-    }
-
-    // Build responsive payload with clean Kannada texts
-    const knMeasures = fixKannadaGarbage(matchedAdvisory.agriculture_measures_kn || matchedAdvisory.AGRICULTURE_MEASURES_KN);
-    const knProtection = fixKannadaGarbage(matchedAdvisory.plant_protection_mearures_kn || matchedAdvisory.PLANT_PROTECTION_MEARURES_KN);
-    const enMeasures = matchedAdvisory.agriculture_measures_en || matchedAdvisory.AGRICULTURE_MEASURES_EN;
-    const enProtection = matchedAdvisory.plant_protection_mearures_en || matchedAdvisory.PLANT_PROTECTION_MEARURES_EN;
-
-    const responsePayload = {
-      AGRICULTURE_MEASURES_KN: knMeasures,
-      PLANT_PROTECTION_MEARURES_KN: knProtection,
-      AGRICULTURE_MEASURES_ENG: enMeasures,
-      PLANT_PROTECTION_MEARURES_ENG: enProtection,
-      AGRICULTURE_MEASURES_KN2: '',
-      PLANT_PROTECTION_MEARURES_KN2: '',
-      CROP_NAME: targetCrop,
-      DAS_OF_CROP: matchedAdvisory.das_of_crop || matchedAdvisory.DAS_OF_CROP,
-      CROP_DURATION: cropDetails.crop_duration || cropDetails.CROP_DURATION,
-      das: das,
-      prevRainfall: prevRainCategory,
-      nextRainfall: nextRainCategory
-    };
-
-    console.log(`[${new Date().toISOString()}] Weather-based crop advisory matched and resolved successfully`);
-    return ApiResponse.ok(res, 'Crop advisory retrieved successfully', responsePayload);
   } catch (error) {
     console.error(`[${new Date().toISOString()}] Error in getContingencyCropPlan:`, error.message);
     return ApiResponse.error(res, 500, 'Failed to retrieve crop advisory', { error: error.message });
@@ -288,6 +190,21 @@ exports.getCropPeriodInfo = async (req, res) => {
     const { crop, mobileNo, region } = req.query;
     if (!crop) {
       return ApiResponse.error(res, 400, 'Missing required parameter: crop');
+    }
+
+    const upperCrop = crop.toUpperCase().trim();
+    const isWeeksHorti = HORTI_WEEKS_CROPS.includes(upperCrop);
+    const isMonthsHorti = HORTI_MONTHS_CROPS.includes(upperCrop);
+
+    if (isWeeksHorti || isMonthsHorti) {
+      return ApiResponse.ok(res, 'Crop period info retrieved successfully', {
+        crop,
+        cropType: 'HORTICULTURE',
+        calendarType: isWeeksHorti ? 'WEEKS' : 'MONTHS',
+        allowFutureDate: false,
+        openperiod_msg: '',
+        ranges: []
+      });
     }
     
     let cleanRegion = null;
@@ -541,12 +458,380 @@ function matchDas(das, dasStr) {
 function fixKannadaGarbage(str) {
   if (!str) return str;
   try {
+    // If the string already contains valid Kannada characters, it is already correct.
+    // Do not run the Latin-1 conversion, as it will destroy it.
+    const hasKannada = /[\u0C80-\u0CFF]/.test(str);
+    if (hasKannada) {
+      return str.replace(/[\u0000-\u001F\u007F-\u009F]/g, "").trim();
+    }
+
+    // Otherwise, it might be double-encoded or Latin-1 corrupted.
     let decoded = Buffer.from(str, "latin1").toString("utf8");
-    decoded = decoded.replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
-    decoded = decoded.replace(/[\uFFFD]+/g, "");
-    decoded = decoded.replace(/[^\u0C80-\u0CFF\s.,0-9\-\/]+/g, "");
-    return decoded.trim();
+    
+    // Check if the decoded version now contains Kannada.
+    if (/[\u0C80-\u0CFF]/.test(decoded)) {
+      decoded = decoded.replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
+      decoded = decoded.replace(/[\uFFFD]+/g, "");
+      decoded = decoded.replace(/[^\u0C80-\u0CFF\s.,0-9\-\/]+/g, "");
+      return decoded.trim();
+    }
+    
+    return str.trim();
   } catch (err) {
     return str;
   }
+}
+
+/**
+ * Handles Sown = NO advisory logic
+ */
+async function handleSownNo(req, res, district, mobileNo, targetDateStr) {
+  let targetDistrict = district;
+  
+  if (!targetDistrict && mobileNo) {
+    const farmer = await ContingencyCropPlan.getFarmerByMobileNo(mobileNo);
+    if (farmer) {
+      targetDistrict = farmer.district;
+    }
+  }
+
+  if (!targetDistrict) {
+    console.log(`[${new Date().toISOString()}] ContingencyCropPlan validation failed: missing district`);
+    return ApiResponse.error(res, 400, 'Missing required parameter: district or mobileNo');
+  }
+
+  let parsedDate = null;
+  if (targetDateStr) {
+    parsedDate = parseDate(targetDateStr);
+    if (!parsedDate) {
+      console.log(`[${new Date().toISOString()}] ContingencyCropPlan validation failed: invalid date format: ${targetDateStr}`);
+      return ApiResponse.error(res, 400, 'Invalid date format. Supported formats include YYYY-MM-DD, DD-MM-YYYY, and DD-MM-YY');
+    }
+  } else {
+    parsedDate = new Date();
+  }
+
+  console.log(`[${new Date().toISOString()}] Fetching contingency crop plan for district: ${targetDistrict}, date: ${parsedDate.toISOString()}`);
+  const plan = await ContingencyCropPlan.getPlanByDistrictAndDate({ district: targetDistrict, date: parsedDate });
+
+  if (!plan) {
+    console.log(`[${new Date().toISOString()}] Contingency crop plan not found for the parameters`);
+    return ApiResponse.error(res, 404, 'Contingency crop plan not available for the given district and date');
+  }
+
+  console.log(`[${new Date().toISOString()}] Contingency crop plan retrieved successfully`);
+  return ApiResponse.ok(res, 'Contingency crop plan retrieved successfully', plan);
+}
+
+/**
+ * Handles Sown = YES, Agriculture (Field) Crop advisory logic
+ */
+async function handleAgricultureAdvisory(req, res, {
+  targetCrop,
+  cleanRegion,
+  parsedShowingDate,
+  targetTrgCode,
+  targetHobliCode,
+  prevRainfall,
+  nextRainfall,
+  cropDetails
+}) {
+  const blocking = await ContingencyCropPlan.getBlockingPeriod(targetCrop, cleanRegion);
+  if (!blocking) {
+    return ApiResponse.error(res, 400, `Blocking period configuration not found for crop ${targetCrop} in region ${cleanRegion}`);
+  }
+
+  const year = parsedShowingDate.getFullYear();
+  const ranges = parseSowingPeriod(blocking.sowing_period, year);
+
+  if (ranges.length === 0) {
+    return ApiResponse.error(res, 500, `Failed to parse sowing periods for crop ${targetCrop}: ${blocking.sowing_period}`);
+  }
+
+  let isWithinSowingRange = false;
+  let isWithinOpenRange = false;
+
+  for (const r of ranges) {
+    if (parsedShowingDate >= r.sowingStart && parsedShowingDate <= r.sowingEnd) {
+      isWithinSowingRange = true;
+      break;
+    }
+  }
+
+  if (!isWithinSowingRange) {
+    for (const r of ranges) {
+      if (parsedShowingDate >= r.openStart && parsedShowingDate <= r.sowingEnd) {
+        isWithinOpenRange = true;
+        break;
+      }
+    }
+  }
+
+  if (!isWithinSowingRange && !isWithinOpenRange) {
+    console.log(`[${new Date().toISOString()}] Sowing date ${formatDateLocal(parsedShowingDate)} is blocked.`);
+    return ApiResponse.ok(res, 'Sowing date is outside the allowed open period. Calendar blocked.', {
+      status: 'BLOCKED',
+      message: 'Sowing date is outside the allowed open period.'
+    });
+  }
+
+  if (!isWithinSowingRange && isWithinOpenRange) {
+    console.log(`[${new Date().toISOString()}] Sowing date is pre-sowing warning period.`);
+    const warningKn = fixKannadaGarbage(blocking.openperiod_msg);
+    return ApiResponse.ok(res, 'Pre-sowing warning', {
+      status: 'PRE_SOWING',
+      message: warningKn || 'Pre-sowing warning period',
+      openperiod_msg: warningKn || ''
+    });
+  }
+
+  console.log(`[${new Date().toISOString()}] Sowing date is within sowing range. Running weather based calculations...`);
+  
+  const today = new Date();
+  const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const sowingDateOnly = new Date(parsedShowingDate.getFullYear(), parsedShowingDate.getMonth(), parsedShowingDate.getDate());
+  const timeDiff = todayDateOnly.getTime() - sowingDateOnly.getTime();
+  const das = Math.floor(timeDiff / (1000 * 60 * 60 * 24));
+
+  let prevRainCategory = prevRainfall;
+  let nextRainCategory = nextRainfall;
+
+  if (!prevRainCategory || !nextRainCategory) {
+    const metrics = await ContingencyCropPlan.getRainfallMetrics({
+      hobliCode: targetHobliCode,
+      trgCode: targetTrgCode
+    });
+
+    const actualRain = metrics.actualRain;
+    const normalRain = metrics.normalRain;
+    const forecastRain = metrics.forecastRain;
+
+    const deviation = calculateDeviation(actualRain, normalRain);
+    const rainCategory = getDeviationCategory(deviation);
+
+    if (!prevRainCategory) prevRainCategory = rainCategory;
+    if (!nextRainCategory) nextRainCategory = forecastRain;
+
+    if (prevRainCategory === 'NORMAL') {
+      nextRainCategory = 'YES';
+    }
+  }
+
+  console.log(`[${new Date().toISOString()}] Rain Categories - Previous Week: ${prevRainCategory}, Forecast: ${nextRainCategory}, DAS: ${das}`);
+
+  const sowingMonthNorm = normalizeSowingMonth(blocking.sowing_period);
+  const cropId = cropDetails.crop_id || cropDetails.CROP_ID;
+
+  const advisories = await ContingencyCropPlan.fetchFieldCropAdvisory({
+    cropName: targetCrop,
+    cropId: cropId,
+    sowingMonth: sowingMonthNorm,
+    prevRainfall: prevRainCategory,
+    nextRainfall: nextRainCategory,
+    regionCode: cleanRegion
+  });
+
+  let matchedAdvisory = null;
+  for (const adv of advisories) {
+    if (matchDas(das, adv.das_of_crop)) {
+      matchedAdvisory = adv;
+      break;
+    }
+  }
+
+  if (!matchedAdvisory) {
+    console.log(`[${new Date().toISOString()}] No crop advisory row matched for crop: ${targetCrop}, region: ${cleanRegion}, DAS: ${das}`);
+    return ApiResponse.error(res, 404, `No matching crop advisory found for crop ${targetCrop} in region ${cleanRegion} at ${das} DAS.`);
+  }
+
+  const knMeasures = fixKannadaGarbage(matchedAdvisory.agriculture_measures_kn || matchedAdvisory.AGRICULTURE_MEASURES_KN);
+  const knProtection = fixKannadaGarbage(matchedAdvisory.plant_protection_mearures_kn || matchedAdvisory.PLANT_PROTECTION_MEARURES_KN);
+  const enMeasures = matchedAdvisory.agriculture_measures_en || matchedAdvisory.AGRICULTURE_MEASURES_EN;
+  const enProtection = matchedAdvisory.plant_protection_mearures_en || matchedAdvisory.PLANT_PROTECTION_MEARURES_EN;
+
+  const responsePayload = {
+    AGRICULTURE_MEASURES_KN: knMeasures,
+    PLANT_PROTECTION_MEARURES_KN: knProtection,
+    AGRICULTURE_MEASURES_ENG: enMeasures,
+    PLANT_PROTECTION_MEARURES_ENG: enProtection,
+    AGRICULTURE_MEASURES_KN2: '',
+    PLANT_PROTECTION_MEARURES_KN2: '',
+    CROP_NAME: targetCrop,
+    DAS_OF_CROP: matchedAdvisory.das_of_crop || matchedAdvisory.DAS_OF_CROP,
+    CROP_DURATION: cropDetails.crop_duration || cropDetails.CROP_DURATION,
+    das: das,
+    prevRainfall: prevRainCategory,
+    nextRainfall: nextRainCategory
+  };
+
+  console.log(`[${new Date().toISOString()}] Weather-based crop advisory matched and resolved successfully`);
+  return ApiResponse.ok(res, 'Crop advisory retrieved successfully', responsePayload);
+}
+
+/**
+ * Handles Sown = YES, Horticulture Weeks-based advisory logic
+ */
+async function handleHortiWeeksAdvisory(req, res, {
+  targetCrop,
+  cleanRegion,
+  parsedShowingDate,
+  prevRainCategory,
+  nextRainCategory,
+  resolvedCropDuration
+}) {
+  console.log(`[${new Date().toISOString()}] Processing weeks-based Horticulture crop: ${targetCrop}`);
+  
+  const today = new Date();
+  const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const sowingDateOnly = new Date(parsedShowingDate.getFullYear(), parsedShowingDate.getMonth(), parsedShowingDate.getDate());
+  const timeDiff = todayDateOnly.getTime() - sowingDateOnly.getTime();
+  const das = Math.floor(timeDiff / (1000 * 60 * 60 * 24));
+  
+  // Standard round off: e.g. 22/7 should be 3.1 -> 3
+  const weeks = Math.round(das / 7);
+
+  const advisories = await ContingencyCropPlan.fetchHortiWeekAdvisory({
+    cropName: targetCrop,
+    prevRainfall: prevRainCategory,
+    nextRainfall: nextRainCategory,
+    regionCode: cleanRegion
+  });
+
+  if (advisories.length === 0) {
+    console.log(`[${new Date().toISOString()}] No advisories found in HORTI_WEEKS_CROPS_ADVISORY for crop: ${targetCrop}`);
+    return ApiResponse.error(res, 404, `No crop advisories found for crop ${targetCrop} in region ${cleanRegion}`);
+  }
+
+  let matchedAdvisory = null;
+  const upperCrop = targetCrop.toUpperCase().trim();
+  const isCabbage = upperCrop === 'CABBAGE';
+  let cabbageSowingMonth = '';
+  if (isCabbage) {
+    const monthsLong = ['JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE', 'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER'];
+    cabbageSowingMonth = monthsLong[parsedShowingDate.getMonth()];
+  }
+
+  for (const adv of advisories) {
+    const weeksField = adv.weeks_in_number || adv.WEEKS_IN_NUMBER || adv.crop_period_in_weeks || adv.CROP_PERIOD_IN_WEEKS;
+    if (matchDas(weeks, weeksField)) {
+      const rowSowingMonth = adv.sowing_month || adv.SOWING_MONTH;
+      if (isCabbage && rowSowingMonth && rowSowingMonth !== 'NIL') {
+        if (!rowSowingMonth.toUpperCase().includes(cabbageSowingMonth)) {
+          continue;
+        }
+      }
+      matchedAdvisory = adv;
+      break;
+    }
+  }
+
+  if (!matchedAdvisory) {
+    console.log(`[${new Date().toISOString()}] No matching week advisory for week: ${weeks}`);
+    return ApiResponse.error(res, 404, `No matching week advisory found for crop ${targetCrop} at week ${weeks} in region ${cleanRegion}`);
+  }
+
+  const knMeasures = fixKannadaGarbage(matchedAdvisory.agriculture_measures_kn || matchedAdvisory.AGRICULTURE_MEASURES_KN);
+  const knProtection = fixKannadaGarbage(matchedAdvisory.plant_protection_mearures_kn || matchedAdvisory.PLANT_PROTECTION_MEARURES_KN);
+  const enMeasures = matchedAdvisory.agriculture_measures_en || matchedAdvisory.AGRICULTURE_MEASURES_EN;
+  const enProtection = matchedAdvisory.plant_protection_mearures_en || matchedAdvisory.PLANT_PROTECTION_MEARURES_EN;
+
+  const responsePayload = {
+    AGRICULTURE_MEASURES_KN: knMeasures,
+    PLANT_PROTECTION_MEARURES_KN: knProtection,
+    AGRICULTURE_MEASURES_ENG: enMeasures,
+    PLANT_PROTECTION_MEARURES_ENG: enProtection,
+    AGRICULTURE_MEASURES_KN2: '',
+    PLANT_PROTECTION_MEARURES_KN2: '',
+    CROP_NAME: targetCrop,
+    WEEKS_IN_NUMBER: matchedAdvisory.weeks_in_number || matchedAdvisory.WEEKS_IN_NUMBER || matchedAdvisory.crop_period_in_weeks || matchedAdvisory.CROP_PERIOD_IN_WEEKS,
+    GROWTH_STAGE: matchedAdvisory.growth_stage || matchedAdvisory.GROWTH_STAGE,
+    CROP_DURATION: resolvedCropDuration || '',
+    weeks: weeks,
+    das: das,
+    prevRainfall: prevRainCategory,
+    nextRainfall: nextRainCategory
+  };
+
+  console.log(`[${new Date().toISOString()}] Weeks-based horticulture advisory resolved successfully`);
+  return ApiResponse.ok(res, 'Crop advisory retrieved successfully', responsePayload);
+}
+
+/**
+ * Handles Sown = YES, Horticulture Months-based advisory logic
+ */
+async function handleHortiMonthsAdvisory(req, res, {
+  targetCrop,
+  cleanRegion,
+  parsedShowingDate,
+  prevRainCategory,
+  nextRainCategory,
+  resolvedCropDuration
+}) {
+  console.log(`[${new Date().toISOString()}] Processing months-based Horticulture crop: ${targetCrop}`);
+
+  const today = new Date();
+  const monthsAfterSowing = (today.getFullYear() - parsedShowingDate.getFullYear()) * 12 + (today.getMonth() - parsedShowingDate.getMonth());
+
+  let ageCategory = '';
+  if (monthsAfterSowing < 12) {
+    ageCategory = '<1';
+  } else if (monthsAfterSowing >= 12 && monthsAfterSowing <= 48) {
+    ageCategory = '1-4';
+  } else {
+    ageCategory = '>4';
+  }
+
+  const advisories = await ContingencyCropPlan.fetchHortiMonthAdvisory({
+    cropName: targetCrop,
+    prevRainfall: prevRainCategory,
+    nextRainfall: nextRainCategory,
+    regionCode: cleanRegion,
+    ageOfCrop: ageCategory
+  });
+
+  if (advisories.length === 0) {
+    console.log(`[${new Date().toISOString()}] No advisories found in HORTI_MONTHS_CROPS_ADVISORY for crop: ${targetCrop}`);
+    return ApiResponse.error(res, 404, `No crop advisories found for crop ${targetCrop} in region ${cleanRegion}`);
+  }
+
+  const currentMonthIndex = today.getMonth() + 1;
+  let matchedAdvisory = null;
+
+  for (const adv of advisories) {
+    const monthsStr = adv.month_in_number || adv.MONTH_IN_NUMBER || '';
+    const monthsList = monthsStr.toString().split(',').map(m => m.trim());
+    if (monthsList.includes(currentMonthIndex.toString())) {
+      matchedAdvisory = adv;
+      break;
+    }
+  }
+
+  if (!matchedAdvisory) {
+    matchedAdvisory = advisories[0];
+  }
+
+  const knMeasures = fixKannadaGarbage(matchedAdvisory.agriculture_measures_kn || matchedAdvisory.AGRICULTURE_MEASURES_KN);
+  const knProtection = fixKannadaGarbage(matchedAdvisory.plant_protection_kn || matchedAdvisory.PLANT_PROTECTION_KN);
+  const enMeasures = matchedAdvisory.agriculture_measures_en || matchedAdvisory.AGRICULTURE_MEASURES_EN;
+  const enProtection = matchedAdvisory.plant_protection_mearures_en || matchedAdvisory.PLANT_PROTECTION_MEARURES_EN;
+
+  const responsePayload = {
+    AGRICULTURE_MEASURES_KN: knMeasures,
+    PLANT_PROTECTION_MEARURES_KN: knProtection,
+    AGRICULTURE_MEASURES_ENG: enMeasures,
+    PLANT_PROTECTION_MEARURES_ENG: enProtection,
+    AGRICULTURE_MEASURES_KN2: '',
+    PLANT_PROTECTION_MEARURES_KN2: '',
+    CROP_NAME: targetCrop,
+    AGE_OF_THE_CROP: matchedAdvisory.age_of_the_crop || matchedAdvisory.AGE_OF_THE_CROP,
+    MONTH_IN_NUMBER: matchedAdvisory.month_in_number || matchedAdvisory.MONTH_IN_NUMBER,
+    GROWTH_STAGE: matchedAdvisory.growth_stage || matchedAdvisory.GROWTH_STAGE,
+    CROP_DURATION: resolvedCropDuration || '',
+    monthsAfterSowing: monthsAfterSowing,
+    prevRainfall: prevRainCategory,
+    nextRainfall: nextRainCategory
+  };
+
+  console.log(`[${new Date().toISOString()}] Months-based horticulture advisory resolved successfully`);
+  return ApiResponse.ok(res, 'Crop advisory retrieved successfully', responsePayload);
 }

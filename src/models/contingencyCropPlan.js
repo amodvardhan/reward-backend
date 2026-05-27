@@ -440,6 +440,85 @@ const ContingencyCropPlan = {
     } finally {
       if (connection) await closeConnection(connection);
     }
+  },
+
+  /**
+   * Helper to fetch advisory from HORTI_WEEKS_CROPS_ADVISORY
+   */
+  async fetchHortiWeekAdvisory({ cropName, prevRainfall, nextRainfall, regionCode }) {
+    let connection = null;
+    try {
+      connection = await getConnection();
+      
+      const sql = `
+        SELECT *
+        FROM KSNDMC.HORTI_WEEKS_CROPS_ADVISORY
+        WHERE (UPPER(CROP_NAME) = UPPER(:cropName) OR UPPER(CROP_NAME) LIKE UPPER(:cropName) || '%')
+          AND PREVIOUS_WEEK_RAINFALL = :prevRainfall
+          AND NEXT_WEEK_RAINFALL_FORECAST = :nextRainfall
+          AND UPPER(REGION_CODE) LIKE '%' || UPPER(:regionCode) || '%'
+          AND IS_ACTIVE = 'Y'
+      `;
+      const result = await connection.execute(
+        sql,
+        { cropName, prevRainfall, nextRainfall, regionCode },
+        { outFormat: oracledb.OUT_FORMAT_OBJECT }
+      );
+      
+      return result.rows.map(row => {
+        const mapped = {};
+        Object.keys(row).forEach(key => {
+          mapped[key] = row[key];
+          mapped[key.toLowerCase()] = row[key];
+        });
+        return mapped;
+      });
+    } catch (error) {
+      console.error(`Error in fetchHortiWeekAdvisory:`, error.message);
+      throw error;
+    } finally {
+      if (connection) await closeConnection(connection);
+    }
+  },
+
+  /**
+   * Helper to fetch advisory from HORTI_MONTHS_CROPS_ADVISORY
+   */
+  async fetchHortiMonthAdvisory({ cropName, prevRainfall, nextRainfall, regionCode, ageOfCrop }) {
+    let connection = null;
+    try {
+      connection = await getConnection();
+      
+      const sql = `
+        SELECT *
+        FROM KSNDMC.HORTI_MONTHS_CROPS_ADVISORY
+        WHERE (UPPER(CROP_NAME) = UPPER(:cropName) OR UPPER(CROP_NAME) LIKE UPPER(:cropName) || '%')
+          AND AGE_OF_THE_CROP = :ageOfCrop
+          AND PREVIOUS_MONTH_RAINFALL = :prevRainfall
+          AND NEXT_MONTH_RAINFALL_FORECAST = :nextRainfall
+          AND UPPER(REGION_CODE) LIKE '%' || UPPER(:regionCode) || '%'
+          AND IS_ACTIVE = 'Y'
+      `;
+      const result = await connection.execute(
+        sql,
+        { cropName, ageOfCrop, prevRainfall, nextRainfall, regionCode },
+        { outFormat: oracledb.OUT_FORMAT_OBJECT }
+      );
+      
+      return result.rows.map(row => {
+        const mapped = {};
+        Object.keys(row).forEach(key => {
+          mapped[key] = row[key];
+          mapped[key.toLowerCase()] = row[key];
+        });
+        return mapped;
+      });
+    } catch (error) {
+      console.error(`Error in fetchHortiMonthAdvisory:`, error.message);
+      throw error;
+    } finally {
+      if (connection) await closeConnection(connection);
+    }
   }
 };
 

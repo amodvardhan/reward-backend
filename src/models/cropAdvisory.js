@@ -75,21 +75,30 @@ const cropQuery = `
         if (!str) return str;
 
         try {
+          // If the string already contains valid Kannada characters, it is already correct.
+          // Do not run the Latin-1 conversion, as it will destroy it.
+          const hasKannada = /[\u0C80-\u0CFF]/.test(str);
+          if (hasKannada) {
+            return str.replace(/[\u0000-\u001F\u007F-\u009F]/g, "").trim();
+          }
+
           // 1️⃣ Undo Latin-1 corruption
           let decoded = Buffer.from(str, "latin1").toString("utf8");
 
-          // 2️⃣ Remove invalid UTF-8 control bytes
-          decoded = decoded.replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
+          // Check if the decoded version now contains Kannada.
+          if (/[^\u0C80-\u0CFF]/.test(decoded)) {
+            // 2️⃣ Remove invalid UTF-8 control bytes
+            decoded = decoded.replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
 
-          // 3️⃣ Replace sequences of garbage characters with a placeholder
-          decoded = decoded.replace(/[\uFFFD�]+/g, "");   // remove � replacement chars
+            // 3️⃣ Replace sequences of garbage characters with a placeholder
+            decoded = decoded.replace(/[\uFFFD]+/g, "");   // remove  replacement chars
 
-          // 4️⃣ Remove obvious mojibake patterns
-          decoded = decoded.replace(/[^\u0C80-\u0CFF\s.,0-9\-\/]+/g, "");
+            // 4️⃣ Remove obvious mojibake patterns
+            decoded = decoded.replace(/[^\u0C80-\u0CFF\s.,0-9\-\/]+/g, "");
+            return decoded.trim();
+          }
 
-          // (Kannada Unicode range is U+0C80–U+0CFF)
-
-          return decoded.trim();
+          return str.trim();
         } catch (err) {
           return str;
         }
