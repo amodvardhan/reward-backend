@@ -314,8 +314,24 @@ exports.getCropMaster = async (req, res) => {
     try {
         connection = await getConnection();
 
-        const regionCode = req.query.region_code || req.query.REGION_CODE;
-        const cropType = req.query.crop_type || req.query.CROP_TYPE;
+        const regionCodeRaw = req.query.region_code || req.query.REGION_CODE;
+        const cropTypeRaw = req.query.crop_type || req.query.CROP_TYPE;
+
+        let regionCode = null;
+        if (regionCodeRaw) {
+            const val = String(regionCodeRaw).trim();
+            if (val && val.toLowerCase() !== 'null' && val.toLowerCase() !== 'undefined') {
+                regionCode = val;
+            }
+        }
+
+        let cropType = null;
+        if (cropTypeRaw) {
+            const val = String(cropTypeRaw).trim();
+            if (val && val.toLowerCase() !== 'null' && val.toLowerCase() !== 'undefined') {
+                cropType = val;
+            }
+        }
 
         let sql = `SELECT DISTINCT CROP_NAME_KN AS name, CROP_ID AS id, CROP_NAME AS english_name, REGION_CODE AS region_code, CROP_TYPE AS crop_type FROM KSNDMC.REWARD_CROP_MASTER WHERE 1=1`;
         const binds = {};

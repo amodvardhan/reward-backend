@@ -14,6 +14,92 @@ const HORTI_MONTHS_CROPS = [
   'BLACK PEPPER', 'CARDAMOM', 'LEMON', 'BETELVINE', 'BEETLEVINE', 'DRUMSTICK'
 ];
 
+function normalizeCropName(cropName, tableType) {
+  if (!cropName) return '';
+  const upper = cropName.toUpperCase().trim();
+  
+  if (tableType === 'BLOCKING' || tableType === 'DURATION') {
+    if (upper === 'RAGI') return 'FINGER MILLET';
+    if (upper === 'BROWNTOP MILLET') return 'BROWN TOP MILLET';
+    if (upper === 'RICE' || upper === 'RICE(IR)' || upper === 'RICE (IR)') return 'RICE (IR)';
+    return upper;
+  }
+  
+  if (tableType === 'ADVISORY') {
+    if (upper === 'FINGER MILLET') return 'RAGI';
+    if (upper === 'BROWN TOP MILLET') return 'BROWNTOP MILLET';
+    if (upper === 'RICE (IR)' || upper === 'RICE(IR)' || upper === 'RICE') return 'RICE';
+    return upper;
+  }
+  
+  return upper;
+}
+
+function resolveSowingMonth(crop, region, sowingDate, blockingPeriod) {
+  const upperCrop = crop.toUpperCase().trim();
+  const month = sowingDate.getMonth() + 1; // 1-12
+  const day = sowingDate.getDate();
+
+  if (region === 'SIK') {
+    if (upperCrop === 'GROUNDNUT') {
+      return 'June';
+    }
+    
+    if (upperCrop === 'REDGRAM') {
+      if ((month === 5 && day >= 15) || month === 6) {
+        return 'MAY 15 - JUNE 30';
+      }
+      if (month === 7) {
+        return 'JULY 1 - JULY 31';
+      }
+      if (month === 8 && day <= 20) {
+        return 'August 1 - August 20';
+      }
+      if (month < 5 || (month === 5 && day < 15)) {
+        return 'MAY 15 - JUNE 30';
+      }
+      return 'August 1 - August 20';
+    }
+    
+    if (upperCrop === 'GREENGRAM') {
+      return 'January-February & April-May';
+    }
+    
+    if (upperCrop === 'SORGHUM') {
+      return 'September 15 to October 15';
+    }
+    
+    if (upperCrop === 'FOXTAIL MILLET') {
+      if (month === 1) return 'January';
+      if (month === 5) return 'May-August';
+      return 'June-August';
+    }
+    
+    if (upperCrop === 'SUGARCANE') {
+      if (month === 1 || month === 2) return 'January-February';
+      if (month === 7 || month === 8) return 'July-August';
+      return 'Oct-November';
+    }
+    
+    if (upperCrop === 'FIELDBEAN') {
+      return 'FEB-AUG-SEP';
+    }
+
+    if (upperCrop === 'CASTOR') {
+      if (month === 7) return 'MAY-JULY';
+      return 'MAY-JUNE';
+    }
+
+    if (upperCrop === 'PROSO MILLET') {
+      if (month === 5) return 'May-July';
+      return 'June-July';
+    }
+  }
+
+  return normalizeSowingMonth(blockingPeriod);
+}
+
+
 
 /**
  * Get contingency crop plan for a district and date (handles YES/NO sown condition)
@@ -88,7 +174,8 @@ exports.getContingencyCropPlan = async (req, res) => {
     console.log(`[${new Date().toISOString()}] Resolved parameters: Crop: ${targetCrop}, Region: ${cleanRegion}, Sowing Date: ${parsedShowingDate.toISOString()}`);
 
     // Determine crop type
-    const cropDetails = await ContingencyCropPlan.getCropVarietyDuration(targetCrop, cleanRegion);
+    const durationCropName = normalizeCropName(targetCrop, 'DURATION');
+    const cropDetails = await ContingencyCropPlan.getCropVarietyDuration(durationCropName, cleanRegion);
     let cropType = '';
     let resolvedCropId = null;
     let resolvedCropDuration = '';
@@ -234,15 +321,18 @@ exports.getCropPeriodInfo = async (req, res) => {
       cleanRegion = 'NIK'; // Default fallback
     }
     
-    const blocking = await ContingencyCropPlan.getBlockingPeriod(crop, cleanRegion);
+    const blockingCropName = normalizeCropName(crop, 'BLOCKING');
+    const blocking = await ContingencyCropPlan.getBlockingPeriod(blockingCropName, cleanRegion);
     if (!blocking) {
       return ApiResponse.error(res, 404, `Blocking period not found for crop ${crop} in region ${cleanRegion}`);
     }
     
-    const year = new Date().getFullYear();
-    const ranges = parseSowingPeriod(blocking.sowing_period, year);
+    const currentYear = new Date().getFullYear();
+    const rangesCurrent = parseSowingPeriod(blocking.sowing_period, currentYear);
+    const rangesPrev = parseSowingPeriod(blocking.sowing_period, currentYear - 1);
+    const allRanges = [...rangesPrev, ...rangesCurrent];
     
-    const formattedRanges = ranges.map(r => ({
+    const formattedRanges = allRanges.map(r => ({
       sowingStart: formatDateLocal(r.sowingStart),
       sowingEnd: formatDateLocal(r.sowingEnd),
       openStart: formatDateLocal(r.openStart),
@@ -536,7 +626,8 @@ async function handleAgricultureAdvisory(req, res, {
   nextRainfall,
   cropDetails
 }) {
-  const blocking = await ContingencyCropPlan.getBlockingPeriod(targetCrop, cleanRegion);
+  const blockingCropName = normalizeCropName(targetCrop, 'BLOCKING');
+  const blocking = await ContingencyCropPlan.getBlockingPeriod(blockingCropName, cleanRegion);
   if (!blocking) {
     return ApiResponse.error(res, 400, `Blocking period configuration not found for crop ${targetCrop} in region ${cleanRegion}`);
   }
@@ -593,6 +684,27 @@ async function handleAgricultureAdvisory(req, res, {
   const timeDiff = todayDateOnly.getTime() - sowingDateOnly.getTime();
   const das = Math.floor(timeDiff / (1000 * 60 * 60 * 24));
 
+  const cropDuration = cropDetails ? (cropDetails.crop_duration || cropDetails.CROP_DURATION) : 0;
+  if (cropDuration && das > (cropDuration + 30)) {
+    console.log(`[${new Date().toISOString()}] Sowing date is older than crop duration + 30 days (${das} > ${cropDuration + 30}). Crop is harvested.`);
+    return ApiResponse.ok(res, 'Crop has been harvested.', {
+      AGRICULTURE_MEASURES_KN: 'ಬೆಳೆ ಕಟಾವಾಗಿದೆ.',
+      PLANT_PROTECTION_MEARURES_KN: 'ಕಟಾವಿನ ನಂತರದ ಹಂತದಲ್ಲಿ ಯಾವುದೇ ಸಸ್ಯ ಸಂರಕ್ಷಣಾ ಕ್ರಮಗಳ ಅಗತ್ಯವಿಲ್ಲ.',
+      AGRICULTURE_MEASURES_ENG: 'Crop has been harvested.',
+      PLANT_PROTECTION_MEARURES_ENG: 'No plant protection measures are required post-harvest.',
+      AGRICULTURE_MEASURES_KN2: '',
+      PLANT_PROTECTION_MEARURES_KN2: '',
+      CROP_NAME: targetCrop,
+      DAS_OF_CROP: `${cropDuration}+`,
+      CROP_DURATION: cropDuration,
+      das: das,
+      prevRainfall: prevRainfall || 'NIL',
+      nextRainfall: nextRainfall || 'NIL',
+      status: 'HARVESTED',
+      message: 'Crop has been harvested.'
+    });
+  }
+
   let prevRainCategory = prevRainfall;
   let nextRainCategory = nextRainfall;
 
@@ -619,11 +731,12 @@ async function handleAgricultureAdvisory(req, res, {
 
   console.log(`[${new Date().toISOString()}] Rain Categories - Previous Week: ${prevRainCategory}, Forecast: ${nextRainCategory}, DAS: ${das}`);
 
-  const sowingMonthNorm = normalizeSowingMonth(blocking.sowing_period);
+  const advisoryCropName = normalizeCropName(targetCrop, 'ADVISORY');
+  const sowingMonthNorm = resolveSowingMonth(targetCrop, cleanRegion, parsedShowingDate, blocking.sowing_period);
   const cropId = cropDetails.crop_id || cropDetails.CROP_ID;
 
-  const advisories = await ContingencyCropPlan.fetchFieldCropAdvisory({
-    cropName: targetCrop,
+  let advisories = await ContingencyCropPlan.fetchFieldCropAdvisory({
+    cropName: advisoryCropName,
     cropId: cropId,
     sowingMonth: sowingMonthNorm,
     prevRainfall: prevRainCategory,
@@ -636,6 +749,25 @@ async function handleAgricultureAdvisory(req, res, {
     if (matchDas(das, adv.das_of_crop)) {
       matchedAdvisory = adv;
       break;
+    }
+  }
+
+  // Fallback to NIL/NIL rainfall if no match is found (weather-independent post-harvest stages)
+  if (!matchedAdvisory && (prevRainCategory !== 'NIL' || nextRainCategory !== 'NIL')) {
+    console.log(`[${new Date().toISOString()}] No active weather advisory matched. Falling back to NIL/NIL weather-independent query...`);
+    const fallbackAdvisories = await ContingencyCropPlan.fetchFieldCropAdvisory({
+      cropName: advisoryCropName,
+      cropId: cropId,
+      sowingMonth: sowingMonthNorm,
+      prevRainfall: 'NIL',
+      nextRainfall: 'NIL',
+      regionCode: cleanRegion
+    });
+    for (const adv of fallbackAdvisories) {
+      if (matchDas(das, adv.das_of_crop)) {
+        matchedAdvisory = adv;
+        break;
+      }
     }
   }
 

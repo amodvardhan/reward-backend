@@ -182,7 +182,7 @@ const ContingencyCropPlan = {
       }
 
       const sql = `
-        SELECT COALESCE(m.CROP_TYPE, vd.CROP_TYPE) AS CROP_TYPE, vd.CROP_DURATION, vd.SOWING_MONTH, vd.CROP_ID
+        SELECT COALESCE(TO_CHAR(m.CROP_TYPE), vd.CROP_TYPE) AS CROP_TYPE, vd.CROP_DURATION, vd.SOWING_MONTH, vd.CROP_ID
         FROM KSNDMC.REWARD_CROP_VARIETY_DURATION vd
         LEFT JOIN (
           SELECT DISTINCT CROP_ID, CROP_TYPE 
@@ -414,7 +414,7 @@ const ContingencyCropPlan = {
         FROM KSNDMC.FIELD_CROPS_ADVISORY
         WHERE UPPER(CROP_NAME) = UPPER(:cropName)
           AND CROP_ID = :cropId
-          AND SOWING_MONTH = :sowingMonth
+          AND REPLACE(UPPER(SOWING_MONTH), ' ', '') = REPLACE(UPPER(:sowingMonth), ' ', '')
           AND PREVIOUS_WEEK_RAINFALL = :prevRainfall
           AND NEXT_WEEK_RAINFALL_FORECAST = :nextRainfall
           AND REGION_CODE = :regionCode
@@ -422,7 +422,7 @@ const ContingencyCropPlan = {
       `;
       const result = await connection.execute(
         sql, 
-        { cropName, cropId: cropIdNum, sowingMonth, prevRainfall, nextRainfall, regionCode }, 
+        { cropName, cropId: cropIdNum, sowingMonth, prevRainfall, nextRainfall, regionCode },  
         { outFormat: oracledb.OUT_FORMAT_OBJECT }
       );
       
