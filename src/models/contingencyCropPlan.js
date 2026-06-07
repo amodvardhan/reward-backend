@@ -85,7 +85,7 @@ const ContingencyCropPlan = {
 
     try {
       connection = await getConnection();
-      
+
       // Build dynamic IN clause bind parameters safely
       const bindParams = { district: district };
       const inClauseParts = scenarios.map((scenario, index) => {
@@ -152,7 +152,7 @@ const ContingencyCropPlan = {
       `;
       const result = await connection.execute(sql, [mobileNo], { outFormat: oracledb.OUT_FORMAT_OBJECT });
       if (result.rows.length === 0) return null;
-      
+
       const row = result.rows[0];
       const farmer = {};
       Object.keys(row).forEach(key => {
@@ -175,14 +175,14 @@ const ContingencyCropPlan = {
     let connection = null;
     try {
       connection = await getConnection();
-      
+
       let dbCrop = crop;
       if (dbCrop.toUpperCase() === 'FRENCH BEANS') {
         dbCrop = 'BEANS';
       }
 
       const sql = `
-        SELECT COALESCE(TO_CHAR(m.CROP_TYPE), vd.CROP_TYPE) AS CROP_TYPE, vd.CROP_DURATION, vd.SOWING_MONTH, vd.CROP_ID
+        SELECT COALESCE(TO_CHAR(m.CROP_TYPE), TO_CHAR(vd.CROP_TYPE)) AS CROP_TYPE, vd.CROP_DURATION, vd.SOWING_MONTH, vd.CROP_ID
         FROM KSNDMC.REWARD_CROP_VARIETY_DURATION vd
         LEFT JOIN (
           SELECT DISTINCT CROP_ID, CROP_TYPE 
@@ -192,10 +192,10 @@ const ContingencyCropPlan = {
           AND UPPER(vd.REGION_CODE) LIKE '%' || UPPER(:regionCode) || '%'
           AND rownum <= 1
       `;
-      
+
       const result = await connection.execute(sql, [dbCrop, regionCode], { outFormat: oracledb.OUT_FORMAT_OBJECT });
       if (result.rows.length === 0) return null;
-      
+
       const row = result.rows[0];
       const cropDetails = {};
       Object.keys(row).forEach(key => {
@@ -228,7 +228,7 @@ const ContingencyCropPlan = {
       `;
       const result = await connection.execute(sql, [crop, regionCode], { outFormat: oracledb.OUT_FORMAT_OBJECT });
       if (result.rows.length === 0) return null;
-      
+
       const row = result.rows[0];
       const blocking = {};
       Object.keys(row).forEach(key => {
@@ -265,14 +265,14 @@ const ContingencyCropPlan = {
         sql += ` OR UPPER(DISTRICT) = UPPER(:district)`;
         params.district = district;
       }
-      
+
       if (Object.keys(params).length === 0) return null;
-      
+
       sql = sql.replace('WHERE 1=0 OR', 'WHERE');
-      
+
       const result = await connection.execute(sql, params, { outFormat: oracledb.OUT_FORMAT_OBJECT });
       if (result.rows.length === 0) return null;
-      
+
       return result.rows[0].REWARD_REGION;
     } catch (error) {
       console.error(`Error in getRegionByDistrict:`, error.message);
@@ -290,16 +290,16 @@ const ContingencyCropPlan = {
     try {
       connection = await getConnection();
       const today = new Date();
-      
+
       // 1. 3-day actual cumulative rainfall (today - 2 to today)
       const startDate = new Date(today);
       startDate.setDate(today.getDate() - 2);
       startDate.setHours(0, 0, 0, 0);
       const endDate = new Date(today);
       endDate.setHours(23, 59, 59, 999);
-      
+
       const trgCodeNum = Number(trgCode);
-      
+
       let sumActualRain = 0;
       if (!isNaN(trgCodeNum) && hobliCode) {
         const actualRainSql = `
@@ -312,14 +312,14 @@ const ContingencyCropPlan = {
         const actualRes = await connection.execute(actualRainSql, [trgCodeNum, hobliCode, startDate, endDate], { outFormat: oracledb.OUT_FORMAT_OBJECT });
         sumActualRain = actualRes.rows.reduce((sum, r) => sum + (Number(r.RAIN) || 0), 0);
       }
-      
+
       // 2. 3-day normal cumulative rainfall
       let sumNormalRain = 0;
       let hobliCodeClean = hobliCode || '';
       if (hobliCodeClean.length >= 8) hobliCodeClean = hobliCodeClean.substring(0, 8);
       if (hobliCodeClean.length > 6) hobliCodeClean = hobliCodeClean.substring(0, hobliCodeClean.length - 2);
       if (hobliCodeClean === '250702') hobliCodeClean = '250703';
-      
+
       if (hobliCodeClean) {
         const MONTH_NAMES = [
           'January', 'February', 'March', 'April', 'May', 'June',
@@ -333,7 +333,7 @@ const ContingencyCropPlan = {
           const month = MONTH_NAMES[d.getMonth()];
           dayMonths.push(`${day} ${month}`);
         }
-        
+
         const normalRainSql = `
           SELECT SUM(SUM_RAIN) AS TOTAL_RAIN 
           FROM KSNDMC.NORMAL_RAIN_HOBLI_SUM 
@@ -345,12 +345,12 @@ const ContingencyCropPlan = {
           sumNormalRain = Number(normalRes.rows[0].TOTAL_RAIN) || 0;
         }
       }
-      
+
       // 3. 3-day rain forecast
       let hasForecastRain = 'NO';
       if (!isNaN(trgCodeNum)) {
         const suffixes = ['(24 hr FCST)', '(48 hr FCST)', '(72 hr FCST)'];
-        
+
         function formatForecastDatetime(date, suffix) {
           const day = String(date.getDate()).padStart(2, '0');
           const MONTH_MAP_SHORT = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
@@ -358,13 +358,13 @@ const ContingencyCropPlan = {
           const year = date.getFullYear();
           return `${day}${month}${year} 0530 IST ${suffix}`;
         }
-        
+
         const forecastDates = suffixes.map((suffix, idx) => {
           const d = new Date(today);
           d.setDate(today.getDate() + 1 + idx);
           return formatForecastDatetime(d, suffix);
         });
-        
+
         const forecastSql = `
           SELECT RAIN 
           FROM KSNDMC.FORECAST_SAC_TST110316 
@@ -379,7 +379,7 @@ const ContingencyCropPlan = {
           }
         }
       }
-      
+
       return {
         actualRain: sumActualRain,
         normalRain: sumNormalRain,
@@ -400,9 +400,9 @@ const ContingencyCropPlan = {
     let connection = null;
     try {
       connection = await getConnection();
-      
+
       const cropIdNum = Number(cropId);
-      
+
       const sql = `
         SELECT 
           AGRICULTURE_MEASURES_KN,
@@ -421,11 +421,11 @@ const ContingencyCropPlan = {
           AND IS_ACTIVE = 'Y'
       `;
       const result = await connection.execute(
-        sql, 
-        { cropName, cropId: cropIdNum, sowingMonth, prevRainfall, nextRainfall, regionCode },  
+        sql,
+        { cropName, cropId: cropIdNum, sowingMonth, prevRainfall, nextRainfall, regionCode },
         { outFormat: oracledb.OUT_FORMAT_OBJECT }
       );
-      
+
       return result.rows.map(row => {
         const mapped = {};
         Object.keys(row).forEach(key => {
@@ -449,7 +449,7 @@ const ContingencyCropPlan = {
     let connection = null;
     try {
       connection = await getConnection();
-      
+
       const sql = `
         SELECT *
         FROM KSNDMC.HORTI_WEEKS_CROPS_ADVISORY
@@ -464,7 +464,7 @@ const ContingencyCropPlan = {
         { cropName, prevRainfall, nextRainfall, regionCode },
         { outFormat: oracledb.OUT_FORMAT_OBJECT }
       );
-      
+
       return result.rows.map(row => {
         const mapped = {};
         Object.keys(row).forEach(key => {
@@ -488,7 +488,7 @@ const ContingencyCropPlan = {
     let connection = null;
     try {
       connection = await getConnection();
-      
+
       const sql = `
         SELECT *
         FROM KSNDMC.HORTI_MONTHS_CROPS_ADVISORY
@@ -504,7 +504,7 @@ const ContingencyCropPlan = {
         { cropName, ageOfCrop, prevRainfall, nextRainfall, regionCode },
         { outFormat: oracledb.OUT_FORMAT_OBJECT }
       );
-      
+
       return result.rows.map(row => {
         const mapped = {};
         Object.keys(row).forEach(key => {
@@ -515,6 +515,33 @@ const ContingencyCropPlan = {
       });
     } catch (error) {
       console.error(`Error in fetchHortiMonthAdvisory:`, error.message);
+      throw error;
+    } finally {
+      if (connection) await closeConnection(connection);
+    }
+  },
+
+  /**
+   * Helper to fetch sowing month periods for Horti Months crops from HORTI_MONTHS_CROPS_ADVISORY
+   */
+  async getHortiMonthsSowingPeriod(crop, regionCode) {
+    let connection = null;
+    try {
+      connection = await getConnection();
+      const sql = `
+        SELECT DISTINCT MONTH_IN_NUMBER
+        FROM KSNDMC.HORTI_MONTHS_CROPS_ADVISORY
+        WHERE (UPPER(CROP_NAME) = UPPER(:crop) OR UPPER(CROP_NAME) LIKE UPPER(:crop) || '%')
+          AND UPPER(GROWTH_STAGE) = 'PLANTING'
+          AND UPPER(REGION_CODE) LIKE '%' || UPPER(:regionCode) || '%'
+          AND IS_ACTIVE = 'Y'
+          AND rownum <= 1
+      `;
+      const result = await connection.execute(sql, { crop, regionCode }, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+      if (result.rows.length === 0) return null;
+      return result.rows[0].MONTH_IN_NUMBER;
+    } catch (error) {
+      console.error(`Error in getHortiMonthsSowingPeriod:`, error.message);
       throw error;
     } finally {
       if (connection) await closeConnection(connection);

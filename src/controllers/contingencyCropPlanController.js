@@ -11,27 +11,136 @@ const HORTI_WEEKS_CROPS = [
 const HORTI_MONTHS_CROPS = [
   'MANGO', 'GRAPES', 'POMEGRANATE', 'GUAVA', 'SAPOTA', 'JACKFRUIT', 'PAPAYA',
   'COCONUT', 'ARECA NUT', 'ARECANUT', 'CASHEW NUT', 'CASHEWNUT', 'CASHEW',
-  'BLACK PEPPER', 'CARDAMOM', 'LEMON', 'BETELVINE', 'BEETLEVINE', 'DRUMSTICK'
+  'BLACK PEPPER', 'BLACKPEPPER', 'CARDAMOM', 'CARDMOM', 'LEMON', 'BETELVINE',
+  'BEETLEVINE', 'DRUMSTICK'
 ];
+
+function normalizeHortiCropNameForAdvisory(cropName) {
+  if (!cropName) return '';
+  const upper = cropName.toUpperCase().trim();
+  if (upper === 'ARECA NUT' || upper === 'ARECANUT') return 'ARECANUT';
+  if (upper === 'CASHEW NUT' || upper === 'CASHEW' || upper === 'CASHEWNUT') return 'CASHEWNUT';
+  if (upper === 'BLACKPEPPER' || upper === 'BLACK PEPPER') return 'BLACK PEPPER';
+  if (upper === 'CARDMOM' || upper === 'CARDAMOM') return 'CARDAMOM';
+  if (upper === 'BETELVINE' || upper === 'BEETLEVINE' || upper === 'BETEL VINE') return 'BETEL VINE';
+  if (upper === 'PROMOGRANATE' || upper === 'POMEGRANATE') return 'POMEGRANATE';
+  return upper;
+}
+
+function getHortiMonthsSowingPeriodFallback(crop, region) {
+  const upper = crop.toUpperCase().trim();
+  const isSik = region === 'SIK';
+  const isNik = region === 'NIK';
+  const isBoth = isSik || isNik;
+
+  if (upper === 'MANGO' && isBoth) return '6,7';
+  if (upper === 'GRAPES' && isBoth) return '10,11,12,1';
+  if ((upper === 'POMEGRANATE' || upper === 'PROMOGRANATE') && isBoth) return '6';
+  if (upper === 'GUAVA' && isBoth) return '6,7';
+  if (upper === 'SAPOTA' && isBoth) return '6';
+  if (upper === 'PAPAYA' && isBoth) return '6';
+  if (upper === 'COCONUT' && isBoth) return '6,7';
+  if ((upper === 'ARECANUT' || upper === 'ARECA NUT') && isBoth) return '6';
+  if ((upper === 'CASHEWNUT' || upper === 'CASHEW NUT' || upper === 'CASHEW') && isBoth) return '6';
+  if ((upper === 'BLACK PEPPER' || upper === 'BLACKPEPPER') && isSik) return '6,7';
+  if ((upper === 'CARDAMOM' || upper === 'CARDMOM') && isSik) return '5,6';
+  if (upper === 'JACKFRUIT' && isSik) return '6,7';
+  if (upper === 'LEMON' && isNik) return '6';
+  if ((upper === 'BETELVINE' || upper === 'BEETLEVINE' || upper === 'BETEL VINE') && isNik) return '6,7';
+  if (upper === 'DRUMSTICK' && isNik) return '6,7';
+
+  return '';
+}
+
+function groupMonthNumbersIntoRanges(year, monthNumbers) {
+  if (!monthNumbers || monthNumbers.length === 0) return [];
+  const sorted = [...monthNumbers].sort((a, b) => a - b);
+  
+  const ranges = [];
+  let startMonth = sorted[0];
+  let prevMonth = sorted[0];
+  
+  for (let i = 1; i < sorted.length; i++) {
+    const m = sorted[i];
+    if (m === prevMonth + 1) {
+      prevMonth = m;
+    } else {
+      ranges.push({ startMonth, endMonth: prevMonth });
+      startMonth = m;
+      prevMonth = m;
+    }
+  }
+  ranges.push({ startMonth, endMonth: prevMonth });
+  
+  return ranges.map(r => {
+    const sowingStart = new Date(year, r.startMonth - 1, 1, 0, 0, 0, 0);
+    const sowingEnd = new Date(year, r.endMonth, 0, 23, 59, 59, 999);
+    return {
+      sowingStart,
+      sowingEnd,
+      openStart: new Date(sowingStart),
+      openEnd: new Date(sowingEnd)
+    };
+  });
+}
+
+async function isHortiMonthDateAllowed(crop, region, targetDate) {
+  const normCropName = normalizeHortiCropNameForAdvisory(crop);
+  let sowingPeriodStr = await ContingencyCropPlan.getHortiMonthsSowingPeriod(normCropName, region);
+  if (!sowingPeriodStr) {
+    sowingPeriodStr = getHortiMonthsSowingPeriodFallback(crop, region);
+  }
+
+  if (!sowingPeriodStr) return true;
+
+  const monthNumbers = sowingPeriodStr.split(',').map(m => parseInt(m.trim(), 10)).filter(m => !isNaN(m));
+  if (monthNumbers.length === 0) return true;
+
+  const currentYear = new Date().getFullYear();
+  const today = new Date();
+  const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0);
+  const targetDateOnly = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate(), 0, 0, 0, 0);
+
+  for (let year = currentYear; year >= currentYear - 30; year--) {
+    const yearRanges = groupMonthNumbersIntoRanges(year, monthNumbers);
+    for (const r of yearRanges) {
+      if (year === currentYear) {
+        if (r.sowingStart > todayDateOnly) {
+          continue;
+        }
+        if (r.sowingEnd > todayDateOnly) {
+          r.sowingEnd = new Date(todayDateOnly);
+          r.openEnd = new Date(todayDateOnly);
+        }
+      }
+
+      if (targetDateOnly >= r.sowingStart && targetDateOnly <= r.sowingEnd) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
 
 function normalizeCropName(cropName, tableType) {
   if (!cropName) return '';
   const upper = cropName.toUpperCase().trim();
-  
+
   if (tableType === 'BLOCKING' || tableType === 'DURATION') {
     if (upper === 'RAGI') return 'FINGER MILLET';
     if (upper === 'BROWNTOP MILLET') return 'BROWN TOP MILLET';
     if (upper === 'RICE' || upper === 'RICE(IR)' || upper === 'RICE (IR)') return 'RICE (IR)';
     return upper;
   }
-  
+
   if (tableType === 'ADVISORY') {
     if (upper === 'FINGER MILLET') return 'RAGI';
     if (upper === 'BROWN TOP MILLET') return 'BROWNTOP MILLET';
     if (upper === 'RICE (IR)' || upper === 'RICE(IR)' || upper === 'RICE') return 'RICE';
     return upper;
   }
-  
+
   return upper;
 }
 
@@ -44,7 +153,7 @@ function resolveSowingMonth(crop, region, sowingDate, blockingPeriod) {
     if (upperCrop === 'GROUNDNUT') {
       return 'June';
     }
-    
+
     if (upperCrop === 'REDGRAM') {
       if ((month === 5 && day >= 15) || month === 6) {
         return 'MAY 15 - JUNE 30';
@@ -60,27 +169,27 @@ function resolveSowingMonth(crop, region, sowingDate, blockingPeriod) {
       }
       return 'August 1 - August 20';
     }
-    
+
     if (upperCrop === 'GREENGRAM') {
       return 'January-February & April-May';
     }
-    
+
     if (upperCrop === 'SORGHUM') {
       return 'September 15 to October 15';
     }
-    
+
     if (upperCrop === 'FOXTAIL MILLET') {
       if (month === 1) return 'January';
       if (month === 5) return 'May-August';
       return 'June-August';
     }
-    
+
     if (upperCrop === 'SUGARCANE') {
       if (month === 1 || month === 2) return 'January-February';
       if (month === 7 || month === 8) return 'July-August';
       return 'Oct-November';
     }
-    
+
     if (upperCrop === 'FIELDBEAN') {
       return 'FEB-AUG-SEP';
     }
@@ -107,19 +216,19 @@ function resolveSowingMonth(crop, region, sowingDate, blockingPeriod) {
 exports.getContingencyCropPlan = async (req, res) => {
   console.log(`[${new Date().toISOString()}] ContingencyCropPlan API request started: ${req.method} ${req.url}`);
   try {
-    const { 
-      sown, 
-      district, 
-      date, 
-      showing_date, 
-      crop, 
-      mobileNo, 
-      trg_code, 
-      hobli_code, 
-      hobli, 
-      region, 
-      prevRainfall, 
-      nextRainfall 
+    const {
+      sown,
+      district,
+      date,
+      showing_date,
+      crop,
+      mobileNo,
+      trg_code,
+      hobli_code,
+      hobli,
+      region,
+      prevRainfall,
+      nextRainfall
     } = req.query;
 
     const targetDateStr = date || showing_date;
@@ -201,10 +310,21 @@ exports.getContingencyCropPlan = async (req, res) => {
     if (cropType === 'HORTICULTURE') {
       const today = new Date();
       const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-      
+
       // Validate: Do not allow future sowing date
       if (parsedShowingDate > todayDateOnly) {
         return ApiResponse.error(res, 400, 'Sowing date cannot be a future date.');
+      }
+
+      if (isMonthsHorti) {
+        const isAllowed = await isHortiMonthDateAllowed(targetCrop, cleanRegion, parsedShowingDate);
+        if (!isAllowed) {
+          console.log(`[${new Date().toISOString()}] Sowing date ${formatDateLocal(parsedShowingDate)} is blocked for Horti crop ${targetCrop}.`);
+          return ApiResponse.ok(res, 'Sowing date is outside the allowed sowing months. Calendar blocked.', {
+            status: 'BLOCKED',
+            message: 'Sowing date is outside the allowed sowing months.'
+          });
+        }
       }
 
       // Resolve previous and next week rainfall category
@@ -279,29 +399,14 @@ exports.getCropPeriodInfo = async (req, res) => {
       return ApiResponse.error(res, 400, 'Missing required parameter: crop');
     }
 
-    const upperCrop = crop.toUpperCase().trim();
-    const isWeeksHorti = HORTI_WEEKS_CROPS.includes(upperCrop);
-    const isMonthsHorti = HORTI_MONTHS_CROPS.includes(upperCrop);
-
-    if (isWeeksHorti || isMonthsHorti) {
-      return ApiResponse.ok(res, 'Crop period info retrieved successfully', {
-        crop,
-        cropType: 'HORTICULTURE',
-        calendarType: isWeeksHorti ? 'WEEKS' : 'MONTHS',
-        allowFutureDate: false,
-        openperiod_msg: '',
-        ranges: []
-      });
-    }
-    
     let cleanRegion = null;
     if (region) {
       cleanRegion = getCleanRegion(region);
     }
-    
+
     let targetDistrict = null;
     let targetDistrictCode = null;
-    
+
     if (!cleanRegion && mobileNo) {
       const farmer = await ContingencyCropPlan.getFarmerByMobileNo(mobileNo);
       if (farmer) {
@@ -309,36 +414,94 @@ exports.getCropPeriodInfo = async (req, res) => {
         targetDistrictCode = farmer.districtcode;
       }
     }
-    
+
     if (!cleanRegion) {
       const dbRegion = await ContingencyCropPlan.getRegionByDistrict({ district: targetDistrict, districtCode: targetDistrictCode });
       if (dbRegion) {
         cleanRegion = getCleanRegion(dbRegion);
       }
     }
-    
+
     if (!cleanRegion) {
       cleanRegion = 'NIK'; // Default fallback
     }
-    
+
+    const upperCrop = crop.toUpperCase().trim();
+    const isWeeksHorti = HORTI_WEEKS_CROPS.includes(upperCrop);
+    const isMonthsHorti = HORTI_MONTHS_CROPS.includes(upperCrop);
+
+    if (isWeeksHorti || isMonthsHorti) {
+      let ranges = [];
+      if (isMonthsHorti) {
+        const normCropName = normalizeHortiCropNameForAdvisory(crop);
+        let sowingPeriodStr = await ContingencyCropPlan.getHortiMonthsSowingPeriod(normCropName, cleanRegion);
+        if (!sowingPeriodStr) {
+          sowingPeriodStr = getHortiMonthsSowingPeriodFallback(crop, cleanRegion);
+        }
+
+        if (sowingPeriodStr) {
+          const monthNumbers = sowingPeriodStr.split(',').map(m => parseInt(m.trim(), 10)).filter(m => !isNaN(m));
+          if (monthNumbers.length > 0) {
+            const currentYear = new Date().getFullYear();
+            const today = new Date();
+            const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0);
+            
+            const allRanges = [];
+            for (let year = currentYear; year >= currentYear - 30; year--) {
+              const yearRanges = groupMonthNumbersIntoRanges(year, monthNumbers);
+              for (const r of yearRanges) {
+                if (year === currentYear) {
+                  if (r.sowingStart > todayDateOnly) {
+                    continue;
+                  }
+                  if (r.sowingEnd > todayDateOnly) {
+                    r.sowingEnd = new Date(todayDateOnly);
+                    r.openEnd = new Date(todayDateOnly);
+                  }
+                }
+                allRanges.push(r);
+              }
+            }
+            allRanges.sort((a, b) => a.sowingStart - b.sowingStart);
+
+            ranges = allRanges.map(r => ({
+              sowingStart: formatDateLocal(r.sowingStart),
+              sowingEnd: formatDateLocal(r.sowingEnd),
+              openStart: formatDateLocal(r.openStart),
+              openEnd: formatDateLocal(r.openEnd)
+            }));
+          }
+        }
+      }
+
+      return ApiResponse.ok(res, 'Crop period info retrieved successfully', {
+        crop,
+        cropType: 'HORTICULTURE',
+        calendarType: isWeeksHorti ? 'WEEKS' : 'MONTHS',
+        allowFutureDate: false,
+        openperiod_msg: '',
+        ranges: ranges
+      });
+    }
+
     const blockingCropName = normalizeCropName(crop, 'BLOCKING');
     const blocking = await ContingencyCropPlan.getBlockingPeriod(blockingCropName, cleanRegion);
     if (!blocking) {
       return ApiResponse.error(res, 404, `Blocking period not found for crop ${crop} in region ${cleanRegion}`);
     }
-    
+
     const currentYear = new Date().getFullYear();
     const rangesCurrent = parseSowingPeriod(blocking.sowing_period, currentYear);
     const rangesPrev = parseSowingPeriod(blocking.sowing_period, currentYear - 1);
     const allRanges = [...rangesPrev, ...rangesCurrent];
-    
+
     const formattedRanges = allRanges.map(r => ({
       sowingStart: formatDateLocal(r.sowingStart),
       sowingEnd: formatDateLocal(r.sowingEnd),
       openStart: formatDateLocal(r.openStart),
       openEnd: formatDateLocal(r.openEnd)
     }));
-    
+
     return ApiResponse.ok(res, 'Crop period info retrieved successfully', {
       crop,
       region: cleanRegion,
@@ -357,10 +520,10 @@ exports.getCropPeriodInfo = async (req, res) => {
  */
 function parseDate(dateStr) {
   if (!dateStr) return null;
-  
+
   // Remove time portion if present
   const onlyDateStr = dateStr.split('T')[0].trim();
-  
+
   // 1. Try parsing YYYY-MM-DD
   const yyyymmdd = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/.exec(onlyDateStr);
   if (yyyymmdd) {
@@ -370,7 +533,7 @@ function parseDate(dateStr) {
     const parsed = new Date(year, month, day, 0, 0, 0, 0);
     if (!isNaN(parsed.getTime())) return parsed;
   }
-  
+
   // 2. Try parsing DD-MM-YYYY or DD-MM-YY
   const ddmmyyyy = /^(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})$/.exec(onlyDateStr);
   if (ddmmyyyy) {
@@ -383,14 +546,14 @@ function parseDate(dateStr) {
     const parsed = new Date(year, month, day, 0, 0, 0, 0);
     if (!isNaN(parsed.getTime())) return parsed;
   }
-  
+
   // Fallback parsing (handles other standard string formats)
   const parsed = new Date(dateStr);
   if (!isNaN(parsed.getTime())) {
     // Normalize to local 00:00:00
     return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate(), 0, 0, 0, 0);
   }
-  
+
   return null;
 }
 
@@ -463,7 +626,7 @@ function parseSowingPeriod(sowingPeriodStr, year) {
   if (!sowingPeriodStr) return [];
   const parts = sowingPeriodStr.split(',');
   const ranges = [];
-  
+
   for (const part of parts) {
     const rangeParts = part.split('-');
     if (rangeParts.length === 2) {
@@ -509,38 +672,38 @@ function normalizeSowingMonth(sowingPeriod) {
   if (!sowingPeriod) return '';
   let clean = sowingPeriod.replace(/\s+/g, '').toUpperCase();
   clean = clean.replace('JANUARY', 'JAN')
-               .replace('FEBRUARY', 'FEB')
-               .replace('MARCH', 'MAR')
-               .replace('APRIL', 'APR')
-               .replace('AUGUST', 'AUG')
-               .replace('SEPTEMBER', 'SEP')
-               .replace('OCTOBER', 'OCT')
-               .replace('NOVEMBER', 'NOV')
-               .replace('DECEMBER', 'DEC');
+    .replace('FEBRUARY', 'FEB')
+    .replace('MARCH', 'MAR')
+    .replace('APRIL', 'APR')
+    .replace('AUGUST', 'AUG')
+    .replace('SEPTEMBER', 'SEP')
+    .replace('OCTOBER', 'OCT')
+    .replace('NOVEMBER', 'NOV')
+    .replace('DECEMBER', 'DEC');
   return clean;
 }
 
 function matchDas(das, dasStr) {
   if (!dasStr) return false;
   const clean = dasStr.trim();
-  
+
   if (clean.startsWith('>')) {
     const val = parseInt(clean.substring(1).trim(), 10);
     return !isNaN(val) && das > val;
   }
-  
+
   if (clean.startsWith('<')) {
     const val = parseInt(clean.substring(1).trim(), 10);
     return !isNaN(val) && das < val;
   }
-  
+
   const hyphenIndex = clean.indexOf('-', 1);
   if (hyphenIndex > 0) {
     const startVal = parseInt(clean.substring(0, hyphenIndex).trim(), 10);
     const endVal = parseInt(clean.substring(hyphenIndex + 1).trim(), 10);
     return !isNaN(startVal) && !isNaN(endVal) && das >= startVal && das <= endVal;
   }
-  
+
   const val = parseInt(clean, 10);
   return !isNaN(val) && das === val;
 }
@@ -557,7 +720,7 @@ function fixKannadaGarbage(str) {
 
     // Otherwise, it might be double-encoded or Latin-1 corrupted.
     let decoded = Buffer.from(str, "latin1").toString("utf8");
-    
+
     // Check if the decoded version now contains Kannada.
     if (/[\u0C80-\u0CFF]/.test(decoded)) {
       decoded = decoded.replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
@@ -565,7 +728,7 @@ function fixKannadaGarbage(str) {
       decoded = decoded.replace(/[^\u0C80-\u0CFF\s.,0-9\-\/]+/g, "");
       return decoded.trim();
     }
-    
+
     return str.trim();
   } catch (err) {
     return str;
@@ -577,7 +740,7 @@ function fixKannadaGarbage(str) {
  */
 async function handleSownNo(req, res, district, mobileNo, targetDateStr) {
   let targetDistrict = district;
-  
+
   if (!targetDistrict && mobileNo) {
     const farmer = await ContingencyCropPlan.getFarmerByMobileNo(mobileNo);
     if (farmer) {
@@ -677,7 +840,7 @@ async function handleAgricultureAdvisory(req, res, {
   }
 
   console.log(`[${new Date().toISOString()}] Sowing date is within sowing range. Running weather based calculations...`);
-  
+
   const today = new Date();
   const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
   const sowingDateOnly = new Date(parsedShowingDate.getFullYear(), parsedShowingDate.getMonth(), parsedShowingDate.getDate());
@@ -812,13 +975,13 @@ async function handleHortiWeeksAdvisory(req, res, {
   resolvedCropDuration
 }) {
   console.log(`[${new Date().toISOString()}] Processing weeks-based Horticulture crop: ${targetCrop}`);
-  
+
   const today = new Date();
   const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
   const sowingDateOnly = new Date(parsedShowingDate.getFullYear(), parsedShowingDate.getMonth(), parsedShowingDate.getDate());
   const timeDiff = todayDateOnly.getTime() - sowingDateOnly.getTime();
   const das = Math.floor(timeDiff / (1000 * 60 * 60 * 24));
-  
+
   // Standard round off: e.g. 22/7 should be 3.1 -> 3
   const weeks = Math.round(das / 7);
 
