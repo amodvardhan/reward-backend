@@ -3,13 +3,13 @@ const oracledb = require('oracledb');
 const { getConnection, closeConnection } = require('../config/database');
 
 const SCENARIO_RULES = [
-  // --- Group 1: Fortnightly Scenarios ---
+  // --- Group 1: Fortnightly & Monthly Scenarios ---
   {
     name: 'June 1 - 15',
     match: (month, day) => month === 6 && day >= 1 && day <= 15
   },
   {
-    name: 'June 15 - 30',
+    name: 'June 16 - 30',
     match: (month, day) => month === 6 && day >= 16 && day <= 30
   },
   {
@@ -17,7 +17,7 @@ const SCENARIO_RULES = [
     match: (month, day) => month === 7 && day >= 1 && day <= 15
   },
   {
-    name: 'July 15 - 30',
+    name: 'July 16 - 31',
     match: (month, day) => month === 7 && day >= 16 && day <= 31
   },
   {
@@ -25,8 +25,40 @@ const SCENARIO_RULES = [
     match: (month, day) => month === 8 && day >= 1 && day <= 15
   },
   {
-    name: 'August 15 - 30',
+    name: 'August 16 - 31',
     match: (month, day) => month === 8 && day >= 16 && day <= 31
+  },
+  {
+    name: 'September 1 - 15',
+    match: (month, day) => month === 9 && day >= 1 && day <= 15
+  },
+  {
+    name: 'September 16 - 30',
+    match: (month, day) => month === 9 && day >= 16 && day <= 30
+  },
+  {
+    name: 'October 1 - 15',
+    match: (month, day) => month === 10 && day >= 1 && day <= 15
+  },
+  {
+    name: 'October 16 - 31',
+    match: (month, day) => month === 10 && day >= 16 && day <= 31
+  },
+  {
+    name: 'November 1 - 15',
+    match: (month, day) => month === 11 && day >= 1 && day <= 15
+  },
+  {
+    name: 'November 16 - 30',
+    match: (month, day) => month === 11 && day >= 16 && day <= 30
+  },
+  {
+    name: 'December 1 - March 31',
+    match: (month, day) => month === 12 || (month >= 1 && month <= 3)
+  },
+  {
+    name: 'April 1 - May 31',
+    match: (month, day) => month === 4 || month === 5
   },
 
   // --- Group 2: Custom Ranges ---
@@ -49,6 +81,16 @@ const SCENARIO_RULES = [
   {
     name: '> September 30',
     match: (month, day) => month >= 10 || month <= 5 || (month === 9 && day > 30)
+  },
+
+  // --- Group 3: Newly identified Custom Ranges ---
+  {
+    name: 'January 1 - June 19',
+    match: (month, day) => month <= 5 || (month === 6 && day >= 1 && day <= 19)
+  },
+  {
+    name: 'October 1 - December 31',
+    match: (month, day) => month >= 10 && month <= 12
   }
 ];
 
