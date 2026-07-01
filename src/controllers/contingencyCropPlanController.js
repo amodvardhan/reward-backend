@@ -1052,6 +1052,54 @@ async function handleHortiWeeksAdvisory(req, res, {
 }
 
 /**
+ * Resolves the crop's database age category dynamically
+ */
+function resolveAgeCategory(categories, monthsAfterSowing) {
+  if (!categories || categories.length === 0) {
+    // Fallback to default
+    if (monthsAfterSowing < 12) return '<1';
+    if (monthsAfterSowing >= 12 && monthsAfterSowing <= 48) return '1-4';
+    return '>4';
+  }
+
+  let young = null;
+  let intermediate = null;
+  let mature = null;
+
+  for (const cat of categories) {
+    if (!cat) continue;
+    const clean = cat.trim();
+    if (clean.includes('-')) {
+      intermediate = clean;
+    } else if (clean.includes('<1') || clean.includes('>1') || clean === '< 1' || clean === '> 1') {
+      young = clean;
+    } else if (clean.startsWith('>')) {
+      mature = clean;
+    }
+  }
+
+  if (monthsAfterSowing < 12) {
+    return young || '<1';
+  }
+
+  if (intermediate) {
+    const parts = intermediate.split('-');
+    if (parts.length === 2) {
+      const maxYears = parseInt(parts[1].trim(), 10);
+      if (!isNaN(maxYears)) {
+        const maxMonths = maxYears * 12;
+        if (monthsAfterSowing <= maxMonths) {
+          return intermediate;
+        }
+      }
+    }
+    return mature || '>4';
+  }
+
+  return mature || '>2';
+}
+
+/**
  * Handles Sown = YES, Horticulture Months-based advisory logic
  */
 async function handleHortiMonthsAdvisory(req, res, {
@@ -1067,17 +1115,12 @@ async function handleHortiMonthsAdvisory(req, res, {
   const today = new Date();
   const monthsAfterSowing = (today.getFullYear() - parsedShowingDate.getFullYear()) * 12 + (today.getMonth() - parsedShowingDate.getMonth());
 
-  let ageCategory = '';
-  if (monthsAfterSowing < 12) {
-    ageCategory = '<1';
-  } else if (monthsAfterSowing >= 12 && monthsAfterSowing <= 48) {
-    ageCategory = '1-4';
-  } else {
-    ageCategory = '>4';
-  }
+  const normCrop = normalizeHortiCropNameForAdvisory(targetCrop);
+  const categories = await ContingencyCropPlan.getHortiMonthAgeCategories(normCrop, cleanRegion);
+  const ageCategory = resolveAgeCategory(categories, monthsAfterSowing);
 
   const advisories = await ContingencyCropPlan.fetchHortiMonthAdvisory({
-    cropName: targetCrop,
+    cropName: normCrop,
     prevRainfall: prevRainCategory,
     nextRainfall: nextRainCategory,
     regionCode: cleanRegion,

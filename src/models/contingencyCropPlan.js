@@ -588,6 +588,34 @@ const ContingencyCropPlan = {
     } finally {
       if (connection) await closeConnection(connection);
     }
+  },
+
+  /**
+   * Helper to fetch distinct age categories for a crop and region
+   */
+  async getHortiMonthAgeCategories(cropName, regionCode) {
+    let connection = null;
+    try {
+      connection = await getConnection();
+      const sql = `
+        SELECT DISTINCT AGE_OF_THE_CROP
+        FROM KSNDMC.HORTI_MONTHS_CROPS_ADVISORY
+        WHERE (UPPER(CROP_NAME) = UPPER(:cropName) OR UPPER(CROP_NAME) LIKE UPPER(:cropName) || '%')
+          AND UPPER(REGION_CODE) LIKE '%' || UPPER(:regionCode) || '%'
+          AND IS_ACTIVE = 'Y'
+      `;
+      const result = await connection.execute(
+        sql,
+        { cropName, regionCode },
+        { outFormat: oracledb.OUT_FORMAT_OBJECT }
+      );
+      return result.rows.map(row => row.AGE_OF_THE_CROP || row.age_of_the_crop);
+    } catch (error) {
+      console.error(`Error in getHortiMonthAgeCategories:`, error.message);
+      return [];
+    } finally {
+      if (connection) await closeConnection(connection);
+    }
   }
 };
 
