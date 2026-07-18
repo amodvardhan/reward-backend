@@ -110,9 +110,14 @@ exports.getDistricts = async (req, res) => {
         const result = await connection.execute(sql, [], { outFormat: oracledb.OUT_FORMAT_OBJECT });
 
         // Get Kannada translations
-        const kannadaSql = `SELECT DISTINCT DISTRICT_EN, DISTRICT_KN FROM KSNDMC.MSTVW2_HOBLI_GP_MASTER`;
-        const kannadaResult = await connection.execute(kannadaSql, [], { outFormat: oracledb.OUT_FORMAT_OBJECT });
-        const kannadaMap = new Map(kannadaResult.rows.map(row => [row.DISTRICT_EN, row.DISTRICT_KN]));
+        let kannadaMap = new Map();
+        try {
+            const kannadaSql = `SELECT DISTINCT DISTRICT_EN, DISTRICT_KN FROM KSNDMC.MSTVW2_HOBLI_GP_MASTER`;
+            const kannadaResult = await connection.execute(kannadaSql, [], { outFormat: oracledb.OUT_FORMAT_OBJECT });
+            kannadaMap = new Map(kannadaResult.rows.map(row => [row.DISTRICT_EN, row.DISTRICT_KN]));
+        } catch (transErr) {
+            console.warn('Kannada translation view MSTVW2_HOBLI_GP_MASTER not available. Falling back to English names.', transErr.message);
+        }
 
         const districts = result.rows.map(row => {
             const districtEn = row.NAME;
@@ -123,6 +128,15 @@ exports.getDistricts = async (req, res) => {
                 code: row.CODE
             };
         });
+
+        // Alphabetical sorting based on selected language
+        const activeLang = lang || 'en';
+        districts.sort((a, b) => {
+            const nameA = activeLang === 'kn' ? a.district_kn : a.district_en;
+            const nameB = activeLang === 'kn' ? b.district_kn : b.district_en;
+            return nameA.localeCompare(nameB, activeLang === 'kn' ? 'kn' : 'en');
+        });
+
         return ApiResponse.collection(res, 'Districts retrieved successfully', districts);
     } catch (err) {
         return ApiResponse.error(res, 500, 'Failed to retrieve districts', { error: err.message });
@@ -135,7 +149,7 @@ exports.getTaluks = async (req, res) => {
     let connection;
     try {
         connection = await getConnection();
-        const { districtCode } = req.query;
+        const { districtCode, lang } = req.query;
 
         let sql = `SELECT DISTINCT TALUKNAME AS name, TALUKCODE AS code FROM KSNDMC.TALUK_MASTER`;
         let binds = [];
@@ -154,9 +168,14 @@ exports.getTaluks = async (req, res) => {
         );
 
         // Get Kannada translations
-        const kannadaSql = `SELECT DISTINCT TALUKNAME_EN, TALUKNAME_KN FROM KSNDMC.MSTVW2_HOBLI_GP_MASTER`;
-        const kannadaResult = await connection.execute(kannadaSql, [], { outFormat: oracledb.OUT_FORMAT_OBJECT });
-        const kannadaMap = new Map(kannadaResult.rows.map(row => [row.TALUKNAME_EN, row.TALUKNAME_KN]));
+        let kannadaMap = new Map();
+        try {
+            const kannadaSql = `SELECT DISTINCT TALUKNAME_EN, TALUKNAME_KN FROM KSNDMC.MSTVW2_HOBLI_GP_MASTER`;
+            const kannadaResult = await connection.execute(kannadaSql, [], { outFormat: oracledb.OUT_FORMAT_OBJECT });
+            kannadaMap = new Map(kannadaResult.rows.map(row => [row.TALUKNAME_EN, row.TALUKNAME_KN]));
+        } catch (transErr) {
+            console.warn('Kannada translation view MSTVW2_HOBLI_GP_MASTER not available. Falling back to English names.', transErr.message);
+        }
 
         const taluks = result.rows.map(row => {
             const talukEn = row.NAME;
@@ -167,6 +186,15 @@ exports.getTaluks = async (req, res) => {
                 code: row.CODE || row.NAME // fallback if no code
             };
         });
+
+        // Alphabetical sorting based on selected language
+        const activeLang = lang || 'en';
+        taluks.sort((a, b) => {
+            const nameA = activeLang === 'kn' ? a.taluk_kn : a.taluk_en;
+            const nameB = activeLang === 'kn' ? b.taluk_kn : b.taluk_en;
+            return nameA.localeCompare(nameB, activeLang === 'kn' ? 'kn' : 'en');
+        });
+
         return ApiResponse.collection(res, 'Taluks retrieved successfully', taluks);
     } catch (err) {
         return ApiResponse.error(res, 500, 'Failed to retrieve taluks', { error: err.message });
@@ -179,7 +207,7 @@ exports.getHoblis = async (req, res) => {
     let connection;
     try {
         connection = await getConnection();
-        const { districtCode, talukCode } = req.query;
+        const { districtCode, talukCode, lang } = req.query;
 
         let sql = `SELECT DISTINCT HOBLINAME AS name, HOBLICODE AS code FROM KSNDMC.HOBLI_MASTER WHERE LENGTH(HOBLICODE) <= 6`;
         let binds = [];
@@ -203,17 +231,21 @@ exports.getHoblis = async (req, res) => {
         );
 
         // Get Kannada translations - try multiple approaches
-        const kannadaSql = `
-            SELECT DISTINCT HOBLINAME_EN, HOBLINAME_KN, HOBLICODE
-            FROM KSNDMC.MSTVW2_HOBLI_GP_MASTER
-            WHERE HOBLINAME_EN IS NOT NULL AND HOBLINAME_KN IS NOT NULL
-        `;
-        const kannadaResult = await connection.execute(kannadaSql, [], { outFormat: oracledb.OUT_FORMAT_OBJECT });
-        console.log('Kannada translations found:', kannadaResult.rows.length);
-
-        // Create maps for both name-based and code-based lookups
-        const kannadaMapByName = new Map(kannadaResult.rows.map(row => [row.HOBLINAME_EN, row.HOBLINAME_KN]));
-        const kannadaMapByCode = new Map(kannadaResult.rows.map(row => [row.HOBLICODE, row.HOBLINAME_KN]));
+        let kannadaMapByName = new Map();
+        let kannadaMapByCode = new Map();
+        try {
+            const kannadaSql = `
+                SELECT DISTINCT HOBLINAME_EN, HOBLINAME_KN, HOBLICODE
+                FROM KSNDMC.MSTVW2_HOBLI_GP_MASTER
+                WHERE HOBLINAME_EN IS NOT NULL AND HOBLINAME_KN IS NOT NULL
+            `;
+            const kannadaResult = await connection.execute(kannadaSql, [], { outFormat: oracledb.OUT_FORMAT_OBJECT });
+            console.log('Kannada translations found:', kannadaResult.rows.length);
+            kannadaMapByName = new Map(kannadaResult.rows.map(row => [row.HOBLINAME_EN, row.HOBLINAME_KN]));
+            kannadaMapByCode = new Map(kannadaResult.rows.map(row => [row.HOBLICODE, row.HOBLINAME_KN]));
+        } catch (transErr) {
+            console.warn('Kannada translation view MSTVW2_HOBLI_GP_MASTER not available. Falling back to English names.', transErr.message);
+        }
 
         const hoblis = result.rows.map(row => {
             const hobliEn = row.NAME;
@@ -226,6 +258,15 @@ exports.getHoblis = async (req, res) => {
                 code: row.CODE
             };
         });
+
+        // Alphabetical sorting based on selected language
+        const activeLang = lang || 'en';
+        hoblis.sort((a, b) => {
+            const nameA = activeLang === 'kn' ? a.hobli_kn : a.hobli_en;
+            const nameB = activeLang === 'kn' ? b.hobli_kn : b.hobli_en;
+            return nameA.localeCompare(nameB, activeLang === 'kn' ? 'kn' : 'en');
+        });
+
         return ApiResponse.collection(res, 'Hoblis retrieved successfully', hoblis);
     } catch (err) {
         return ApiResponse.error(res, 500, 'Failed to retrieve hoblis', { error: err.message });
@@ -238,7 +279,7 @@ exports.getGPs = async (req, res) => {
     let connection;
     try {
         connection = await getConnection();
-        const { districtCode, talukCode, hobliCode } = req.query;
+        const { districtCode, talukCode, hobliCode, lang } = req.query;
 
         let sql = `SELECT DISTINCT HOBLINAME AS name, HOBLICODE AS code, TRGCODE AS trgCode FROM KSNDMC.HOBLI_MASTER WHERE LENGTH(HOBLICODE) > 6`;
         let binds = [];
@@ -259,17 +300,21 @@ exports.getGPs = async (req, res) => {
 
         // Get Kannada translations from MSTVW2_HOBLI_GP_MASTER
         // For GPs, we need to match by the GP name which is stored in HOBLINAME_EN column
-        const kannadaSql = `
-            SELECT DISTINCT HOBLINAME_EN, HOBLINAME_KN, HOBLICODE
-            FROM KSNDMC.MSTVW2_HOBLI_GP_MASTER
-            WHERE HOBLINAME_EN IS NOT NULL AND HOBLINAME_KN IS NOT NULL
-        `;
-        const kannadaResult = await connection.execute(kannadaSql, [], { outFormat: oracledb.OUT_FORMAT_OBJECT });
-        console.log('GP Kannada translations found:', kannadaResult.rows.length);
-
-        // Create maps for both name-based and code-based lookups
-        const kannadaMapByName = new Map(kannadaResult.rows.map(row => [row.HOBLINAME_EN, row.HOBLINAME_KN]));
-        const kannadaMapByCode = new Map(kannadaResult.rows.map(row => [row.HOBLICODE, row.HOBLINAME_KN]));
+        let kannadaMapByName = new Map();
+        let kannadaMapByCode = new Map();
+        try {
+            const kannadaSql = `
+                SELECT DISTINCT HOBLINAME_EN, HOBLINAME_KN, HOBLICODE
+                FROM KSNDMC.MSTVW2_HOBLI_GP_MASTER
+                WHERE HOBLINAME_EN IS NOT NULL AND HOBLINAME_KN IS NOT NULL
+            `;
+            const kannadaResult = await connection.execute(kannadaSql, [], { outFormat: oracledb.OUT_FORMAT_OBJECT });
+            console.log('GP Kannada translations found:', kannadaResult.rows.length);
+            kannadaMapByName = new Map(kannadaResult.rows.map(row => [row.HOBLINAME_EN, row.HOBLINAME_KN]));
+            kannadaMapByCode = new Map(kannadaResult.rows.map(row => [row.HOBLICODE, row.HOBLINAME_KN]));
+        } catch (transErr) {
+            console.warn('Kannada translation view MSTVW2_HOBLI_GP_MASTER not available. Falling back to English names.', transErr.message);
+        }
 
         const gps = result.rows.map(row => {
             const gpEn = row.NAME;
@@ -284,6 +329,14 @@ exports.getGPs = async (req, res) => {
             };
         });
 
+        // Alphabetical sorting based on selected language
+        const activeLang = lang || 'en';
+        gps.sort((a, b) => {
+            const nameA = activeLang === 'kn' ? a.gp_kn : a.gp_en;
+            const nameB = activeLang === 'kn' ? b.gp_kn : b.gp_en;
+            return nameA.localeCompare(nameB, activeLang === 'kn' ? 'kn' : 'en');
+        });
+
         return ApiResponse.collection(res, 'Gram Panchayats retrieved successfully', gps);
     } catch (err) {
         return ApiResponse.error(res, 500, 'Failed to retrieve gram panchayats', { error: err.message });
@@ -296,11 +349,55 @@ exports.getCrops = async (req, res) => {
     let connection;
     try {
         connection = await getConnection();
-        const { lang } = req.query;
-        const column = lang === 'kn' ? 'CROP_NAME_KN' : 'CROP_NAME';
-        const sql = `SELECT DISTINCT ${column} AS name, CROP_ID AS id FROM KSNDMC.REWARD_CROP_MASTER ORDER BY ${column}`;
-        const result = await connection.execute(sql, [], { outFormat: oracledb.OUT_FORMAT_OBJECT });
-        const crops = result.rows.map(row => ({ name: row.NAME, id: row.ID }));
+        const { lang, mobileNo, region } = req.query;
+
+        // Resolve farmer's region if mobileNo is provided
+        let resolvedRegion = null;
+        if (region) {
+            resolvedRegion = region.trim();
+        } else if (mobileNo) {
+            const farmerSql = `SELECT DISTRICT FROM KSNDMC.REWARD_FARMER_DETAILS WHERE MOBILE_NO = :mobileNo`;
+            const farmerRes = await connection.execute(farmerSql, { mobileNo }, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+            if (farmerRes.rows.length > 0) {
+                const district = farmerRes.rows[0].DISTRICT;
+                const regionSql = `SELECT REGION_CODE FROM KSNDMC.REWARD_REGION_MASTER WHERE UPPER(DISTRICT) = UPPER(:district) AND rownum <= 1`;
+                const regionRes = await connection.execute(regionSql, { district }, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+                if (regionRes.rows.length > 0) {
+                    resolvedRegion = regionRes.rows[0].REGION_CODE;
+                }
+            }
+        }
+
+        // Fetch crops filtered by resolved region if present
+        let sql = `SELECT DISTINCT CROP_NAME, CROP_NAME_KN, CROP_ID FROM KSNDMC.REWARD_CROP_MASTER`;
+        const binds = {};
+        if (resolvedRegion) {
+            let cleanRegion = resolvedRegion.toUpperCase();
+            if (cleanRegion.includes('SIK')) {
+                cleanRegion = 'SIK';
+            } else if (cleanRegion.includes('NIK')) {
+                cleanRegion = 'NIK';
+            }
+            sql += ` WHERE UPPER(REGION_CODE) LIKE '%' || :region || '%'`;
+            binds.region = cleanRegion;
+        }
+
+        sql += ` ORDER BY CROP_NAME`;
+
+        const result = await connection.execute(sql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+        
+        const crops = result.rows.map(row => {
+            const name = lang === 'kn' ? (row.CROP_NAME_KN || row.CROP_NAME) : row.CROP_NAME;
+            return {
+                name: name,
+                id: row.CROP_ID
+            };
+        });
+
+        // Alphabetical sorting based on active language
+        const activeLang = lang || 'en';
+        crops.sort((a, b) => a.name.localeCompare(b.name, activeLang === 'kn' ? 'kn' : 'en'));
+
         return ApiResponse.collection(res, 'Crops retrieved successfully', crops);
     } catch (err) {
         return ApiResponse.error(res, 500, 'Failed to retrieve crops', { error: err.message });
@@ -316,6 +413,7 @@ exports.getCropMaster = async (req, res) => {
 
         const regionCodeRaw = req.query.region_code || req.query.REGION_CODE;
         const cropTypeRaw = req.query.crop_type || req.query.CROP_TYPE;
+        const lang = req.query.lang || req.query.LANG || 'en';
 
         let regionCode = null;
         if (regionCodeRaw) {
@@ -349,13 +447,21 @@ exports.getCropMaster = async (req, res) => {
         sql += ` ORDER BY CROP_NAME_KN`;
 
         const result = await connection.execute(sql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
-        const crops = result.rows.map(row => ({
-            name: row.NAME,
-            id: row.ID,
-            english_name: row.ENGLISH_NAME,
-            region_code: row.REGION_CODE,
-            crop_type: row.CROP_TYPE
-        }));
+        
+        const crops = result.rows.map(row => {
+            const name = lang === 'kn' ? (row.NAME || row.ENGLISH_NAME) : row.ENGLISH_NAME;
+            return {
+                name: name,
+                id: row.ID,
+                english_name: row.ENGLISH_NAME,
+                region_code: row.REGION_CODE,
+                crop_type: row.CROP_TYPE
+            };
+        });
+
+        // Alphabetical sorting based on active language
+        crops.sort((a, b) => a.name.localeCompare(b.name, lang === 'kn' ? 'kn' : 'en'));
+
         return ApiResponse.collection(res, 'Crop master retrieved successfully', crops);
     } catch (err) {
         return ApiResponse.error(res, 500, 'Failed to retrieve crop master', { error: err.message });

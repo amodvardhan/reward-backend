@@ -224,12 +224,15 @@ const ContingencyCropPlan = {
       }
 
       const sql = `
-        SELECT COALESCE(TO_CHAR(m.CROP_TYPE), TO_CHAR(vd.CROP_TYPE)) AS CROP_TYPE, vd.CROP_DURATION, vd.SOWING_MONTH, vd.CROP_ID
+        SELECT COALESCE(TO_CHAR(m.CROP_TYPE), TO_CHAR(vd.CROP_TYPE)) AS CROP_TYPE, vd.CROP_DURATION, vd.SOWING_MONTH, COALESCE(m.CROP_ID, vd.CROP_ID) AS CROP_ID
         FROM KSNDMC.REWARD_CROP_VARIETY_DURATION vd
         LEFT JOIN (
-          SELECT DISTINCT CROP_ID, CROP_TYPE 
+          SELECT DISTINCT CROP_ID, CROP_TYPE, CROP_NAME
           FROM KSNDMC.REWARD_CROP_MASTER
-        ) m ON m.CROP_ID = vd.CROP_ID
+        ) m ON UPPER(m.CROP_NAME) = UPPER(vd.CROP_NAME)
+            OR (UPPER(vd.CROP_NAME) = 'FINGER MILLET' AND UPPER(m.CROP_NAME) = 'RAGI')
+            OR (UPPER(vd.CROP_NAME) = 'RAGI' AND UPPER(m.CROP_NAME) = 'FINGER MILLET')
+            OR (m.CROP_ID = vd.CROP_ID AND UPPER(m.CROP_TYPE) = UPPER(vd.CROP_TYPE))
         WHERE UPPER(vd.CROP_NAME) = UPPER(:dbCrop)
           AND UPPER(vd.REGION_CODE) LIKE '%' || UPPER(:regionCode) || '%'
           AND rownum <= 1
@@ -446,7 +449,10 @@ const ContingencyCropPlan = {
       const cropIdNum = Number(cropId);
 
       const sql = `
-        SELECT 
+        SELECT
+          PREVIOUS_WEEK_RAINFALL,
+          NEXT_WEEK_RAINFALL_FORECAST,
+          CROP_NAME,
           AGRICULTURE_MEASURES_KN,
           PLANT_PROTECTION_MEARURES_KN,
           AGRICULTURE_MEASURES_EN,
@@ -455,7 +461,7 @@ const ContingencyCropPlan = {
           DAS_OF_CROP
         FROM KSNDMC.FIELD_CROPS_ADVISORY
         WHERE UPPER(CROP_NAME) = UPPER(:cropName)
-          AND CROP_ID = :cropId
+          AND (CROP_ID = :cropId OR CROP_ID IS NULL)
           AND REPLACE(UPPER(SOWING_MONTH), ' ', '') = REPLACE(UPPER(:sowingMonth), ' ', '')
           AND PREVIOUS_WEEK_RAINFALL = :prevRainfall
           AND NEXT_WEEK_RAINFALL_FORECAST = :nextRainfall
