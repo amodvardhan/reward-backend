@@ -378,14 +378,57 @@ exports.getCrops = async (req, res) => {
             } else if (cleanRegion.includes('NIK')) {
                 cleanRegion = 'NIK';
             }
-            sql += ` WHERE UPPER(REGION_CODE) LIKE '%' || :region || '%'`;
+            sql = `
+                SELECT DISTINCT m.CROP_NAME, m.CROP_NAME_KN, m.CROP_ID 
+                FROM KSNDMC.REWARD_CROP_MASTER m
+                WHERE UPPER(m.REGION_CODE) LIKE '%' || :region || '%'
+                  AND (
+                      EXISTS (
+                          SELECT 1 FROM KSNDMC.BLOCKING_PERIOD b
+                          WHERE UPPER(b.REGION_CODE) LIKE '%' || :region || '%'
+                            AND b.IS_ACTIVE = 'Y'
+                            AND (
+                                UPPER(b.CROP_NAME) = UPPER(m.CROP_NAME)
+                                OR (UPPER(m.CROP_NAME) = 'RAGI' AND UPPER(b.CROP_NAME) = 'FINGER MILLET')
+                                OR (UPPER(m.CROP_NAME) = 'RICE (IR)' AND UPPER(b.CROP_NAME) = 'PADDY')
+                                OR (UPPER(m.CROP_NAME) = 'RICE (IR)' AND UPPER(b.CROP_NAME) = 'RICE (IR)')
+                            )
+                      )
+                      OR
+                      EXISTS (
+                          SELECT 1 FROM KSNDMC.FIELD_CROPS_ADVISORY f
+                          WHERE UPPER(f.REGION_CODE) LIKE '%' || :region || '%'
+                            AND f.IS_ACTIVE = 'Y'
+                            AND (
+                                UPPER(f.CROP_NAME) = UPPER(m.CROP_NAME)
+                                OR (UPPER(m.CROP_NAME) = 'RAGI' AND UPPER(f.CROP_NAME) = 'FINGER MILLET')
+                                OR (UPPER(m.CROP_NAME) = 'RICE (IR)' AND UPPER(f.CROP_NAME) = 'PADDY')
+                                OR (UPPER(m.CROP_NAME) = 'RICE (IR)' AND UPPER(f.CROP_NAME) = 'RICE')
+                            )
+                      )
+                      OR
+                      EXISTS (
+                          SELECT 1 FROM KSNDMC.HORTI_WEEKS_CROPS_ADVISORY hw
+                          WHERE (UPPER(hw.CROP_NAME) = UPPER(m.CROP_NAME) OR UPPER(hw.CROP_NAME) LIKE UPPER(m.CROP_NAME) || '%')
+                            AND UPPER(hw.REGION_CODE) LIKE '%' || :region || '%'
+                            AND hw.IS_ACTIVE = 'Y'
+                      )
+                      OR
+                      EXISTS (
+                          SELECT 1 FROM KSNDMC.HORTI_MONTHS_CROPS_ADVISORY hm
+                          WHERE (UPPER(hm.CROP_NAME) = UPPER(m.CROP_NAME) OR UPPER(hm.CROP_NAME) LIKE UPPER(m.CROP_NAME) || '%')
+                            AND UPPER(hm.REGION_CODE) LIKE '%' || :region || '%'
+                            AND hm.IS_ACTIVE = 'Y'
+                      )
+                  )
+            `;
             binds.region = cleanRegion;
         }
 
         sql += ` ORDER BY CROP_NAME`;
 
         const result = await connection.execute(sql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
-        
+
         const crops = result.rows.map(row => {
             const name = lang === 'kn' ? (row.CROP_NAME_KN || row.CROP_NAME) : row.CROP_NAME;
             return {
@@ -431,23 +474,78 @@ exports.getCropMaster = async (req, res) => {
             }
         }
 
-        let sql = `SELECT DISTINCT CROP_NAME_KN AS name, CROP_ID AS id, CROP_NAME AS english_name, REGION_CODE AS region_code, CROP_TYPE AS crop_type FROM KSNDMC.REWARD_CROP_MASTER WHERE 1=1`;
+        let region = null;
+        if (regionCode) {
+            const cleanReg = regionCode.toUpperCase();
+            if (cleanReg.includes('SIK')) {
+                region = 'SIK';
+            } else if (cleanReg.includes('NIK')) {
+                region = 'NIK';
+            }
+        }
+
+        let sql = `SELECT DISTINCT m.CROP_NAME_KN AS name, m.CROP_ID AS id, m.CROP_NAME AS english_name, m.REGION_CODE AS region_code, m.CROP_TYPE AS crop_type FROM KSNDMC.REWARD_CROP_MASTER m WHERE 1=1`;
         const binds = {};
 
         if (regionCode) {
-            sql += ` AND UPPER(REGION_CODE) LIKE '%' || UPPER(:region_code) || '%'`;
+            sql += ` AND UPPER(m.REGION_CODE) LIKE '%' || UPPER(:region_code) || '%'`;
             binds.region_code = regionCode;
         }
 
         if (cropType) {
-            sql += ` AND UPPER(CROP_TYPE) = UPPER(:crop_type)`;
+            sql += ` AND UPPER(m.CROP_TYPE) = UPPER(:crop_type)`;
             binds.crop_type = cropType;
+        }
+
+        if (region) {
+            sql += `
+              AND (
+                  EXISTS (
+                      SELECT 1 FROM KSNDMC.BLOCKING_PERIOD b
+                      WHERE UPPER(b.REGION_CODE) LIKE '%' || :region_filter || '%'
+                        AND b.IS_ACTIVE = 'Y'
+                        AND (
+                            UPPER(b.CROP_NAME) = UPPER(m.CROP_NAME)
+                            OR (UPPER(m.CROP_NAME) = 'RAGI' AND UPPER(b.CROP_NAME) = 'FINGER MILLET')
+                            OR (UPPER(m.CROP_NAME) = 'RICE (IR)' AND UPPER(b.CROP_NAME) = 'PADDY')
+                            OR (UPPER(m.CROP_NAME) = 'RICE (IR)' AND UPPER(b.CROP_NAME) = 'RICE (IR)')
+                        )
+                  )
+                  OR
+                  EXISTS (
+                      SELECT 1 FROM KSNDMC.FIELD_CROPS_ADVISORY f
+                      WHERE UPPER(f.REGION_CODE) LIKE '%' || :region_filter || '%'
+                        AND f.IS_ACTIVE = 'Y'
+                        AND (
+                            UPPER(f.CROP_NAME) = UPPER(m.CROP_NAME)
+                            OR (UPPER(m.CROP_NAME) = 'RAGI' AND UPPER(f.CROP_NAME) = 'FINGER MILLET')
+                            OR (UPPER(m.CROP_NAME) = 'RICE (IR)' AND UPPER(f.CROP_NAME) = 'PADDY')
+                            OR (UPPER(m.CROP_NAME) = 'RICE (IR)' AND UPPER(f.CROP_NAME) = 'RICE')
+                        )
+                  )
+                  OR
+                  EXISTS (
+                      SELECT 1 FROM KSNDMC.HORTI_WEEKS_CROPS_ADVISORY hw
+                      WHERE (UPPER(hw.CROP_NAME) = UPPER(m.CROP_NAME) OR UPPER(hw.CROP_NAME) LIKE UPPER(m.CROP_NAME) || '%')
+                        AND UPPER(hw.REGION_CODE) LIKE '%' || :region_filter || '%'
+                        AND hw.IS_ACTIVE = 'Y'
+                  )
+                  OR
+                  EXISTS (
+                      SELECT 1 FROM KSNDMC.HORTI_MONTHS_CROPS_ADVISORY hm
+                      WHERE (UPPER(hm.CROP_NAME) = UPPER(m.CROP_NAME) OR UPPER(hm.CROP_NAME) LIKE UPPER(m.CROP_NAME) || '%')
+                        AND UPPER(hm.REGION_CODE) LIKE '%' || :region_filter || '%'
+                        AND hm.IS_ACTIVE = 'Y'
+                  )
+              )
+            `;
+            binds.region_filter = region;
         }
 
         sql += ` ORDER BY CROP_NAME_KN`;
 
         const result = await connection.execute(sql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
-        
+
         const crops = result.rows.map(row => {
             const name = lang === 'kn' ? (row.NAME || row.ENGLISH_NAME) : row.ENGLISH_NAME;
             return {

@@ -263,7 +263,7 @@ const ContingencyCropPlan = {
     let connection = null;
     try {
       connection = await getConnection();
-      const sql = `
+      const sqlWithRegion = `
         SELECT SOWING_PERIOD, OPENPERIOD_MSG, OPEN_PERIOD_EN, OPEN_PERIOD_KN 
         FROM KSNDMC.BLOCKING_PERIOD 
         WHERE UPPER(CROP_NAME) = UPPER(:crop) 
@@ -271,7 +271,7 @@ const ContingencyCropPlan = {
           AND IS_ACTIVE = 'Y'
           AND rownum <= 1
       `;
-      const result = await connection.execute(sql, [crop, regionCode], { outFormat: oracledb.OUT_FORMAT_OBJECT });
+      let result = await connection.execute(sqlWithRegion, [crop, regionCode], { outFormat: oracledb.OUT_FORMAT_OBJECT });
       if (result.rows.length === 0) return null;
 
       const row = result.rows[0];
@@ -468,7 +468,7 @@ const ContingencyCropPlan = {
           AND REGION_CODE = :regionCode
           AND IS_ACTIVE = 'Y'
       `;
-      const result = await connection.execute(
+      let result = await connection.execute(
         sql,
         { cropName, cropId: cropIdNum, sowingMonth, prevRainfall, nextRainfall, regionCode },
         { outFormat: oracledb.OUT_FORMAT_OBJECT }
@@ -484,6 +484,57 @@ const ContingencyCropPlan = {
       });
     } catch (error) {
       console.error(`Error in fetchFieldCropAdvisory:`, error.message);
+      throw error;
+    } finally {
+      if (connection) await closeConnection(connection);
+    }
+  },
+
+  /**
+   * Helper to fetch advisory from FIELD_CROPS_ADVISORY without weather constraints
+   */
+  async fetchFieldCropAdvisoryWithoutWeather({ cropName, cropId, sowingMonth, regionCode }) {
+    let connection = null;
+    try {
+      connection = await getConnection();
+
+      const cropIdNum = Number(cropId);
+
+      const sql = `
+        SELECT
+          PREVIOUS_WEEK_RAINFALL,
+          NEXT_WEEK_RAINFALL_FORECAST,
+          CROP_NAME,
+          AGRICULTURE_MEASURES_KN,
+          PLANT_PROTECTION_MEARURES_KN,
+          AGRICULTURE_MEASURES_EN,
+          PLANT_PROTECTION_MEARURES_EN,
+          DEFINED_DAS_OF_CROP,
+          DAS_OF_CROP
+        FROM KSNDMC.FIELD_CROPS_ADVISORY
+        WHERE UPPER(CROP_NAME) = UPPER(:cropName)
+          AND (CROP_ID = :cropId OR CROP_ID IS NULL)
+          AND REPLACE(UPPER(SOWING_MONTH), ' ', '') = REPLACE(UPPER(:sowingMonth), ' ', '')
+          AND REGION_CODE = :regionCode
+          AND IS_ACTIVE = 'Y'
+      `;
+
+      let result = await connection.execute(
+        sql,
+        { cropName, cropId: cropIdNum, sowingMonth, regionCode },
+        { outFormat: oracledb.OUT_FORMAT_OBJECT }
+      );
+
+      return result.rows.map(row => {
+        const mapped = {};
+        Object.keys(row).forEach(key => {
+          mapped[key] = row[key];
+          mapped[key.toLowerCase()] = row[key];
+        });
+        return mapped;
+      });
+    } catch (error) {
+      console.error(`Error in fetchFieldCropAdvisoryWithoutWeather:`, error.message);
       throw error;
     } finally {
       if (connection) await closeConnection(connection);
@@ -507,7 +558,7 @@ const ContingencyCropPlan = {
           AND UPPER(REGION_CODE) LIKE '%' || UPPER(:regionCode) || '%'
           AND IS_ACTIVE = 'Y'
       `;
-      const result = await connection.execute(
+      let result = await connection.execute(
         sql,
         { cropName, prevRainfall, nextRainfall, regionCode },
         { outFormat: oracledb.OUT_FORMAT_OBJECT }
@@ -523,6 +574,41 @@ const ContingencyCropPlan = {
       });
     } catch (error) {
       console.error(`Error in fetchHortiWeekAdvisory:`, error.message);
+      throw error;
+    } finally {
+      if (connection) await closeConnection(connection);
+    }
+  },
+
+  /**
+   * Helper to fetch weekly advisory without weather constraints
+   */
+  async fetchHortiWeekAdvisoryWithoutWeather({ cropName, regionCode }) {
+    let connection = null;
+    try {
+      connection = await getConnection();
+      const sql = `
+        SELECT *
+        FROM KSNDMC.HORTI_WEEKS_CROPS_ADVISORY
+        WHERE (UPPER(CROP_NAME) = UPPER(:cropName) OR UPPER(CROP_NAME) LIKE UPPER(:cropName) || '%')
+          AND UPPER(REGION_CODE) LIKE '%' || UPPER(:regionCode) || '%'
+          AND IS_ACTIVE = 'Y'
+      `;
+      let result = await connection.execute(
+        sql,
+        { cropName, regionCode },
+        { outFormat: oracledb.OUT_FORMAT_OBJECT }
+      );
+      return result.rows.map(row => {
+        const mapped = {};
+        Object.keys(row).forEach(key => {
+          mapped[key] = row[key];
+          mapped[key.toLowerCase()] = row[key];
+        });
+        return mapped;
+      });
+    } catch (error) {
+      console.error(`Error in fetchHortiWeekAdvisoryWithoutWeather:`, error.message);
       throw error;
     } finally {
       if (connection) await closeConnection(connection);
@@ -547,7 +633,7 @@ const ContingencyCropPlan = {
           AND UPPER(REGION_CODE) LIKE '%' || UPPER(:regionCode) || '%'
           AND IS_ACTIVE = 'Y'
       `;
-      const result = await connection.execute(
+      let result = await connection.execute(
         sql,
         { cropName, ageOfCrop, prevRainfall, nextRainfall, regionCode },
         { outFormat: oracledb.OUT_FORMAT_OBJECT }
@@ -570,13 +656,51 @@ const ContingencyCropPlan = {
   },
 
   /**
+   * Helper to fetch advisory from HORTI_MONTHS_CROPS_ADVISORY without weather constraints
+   */
+  async fetchHortiMonthAdvisoryWithoutWeather({ cropName, regionCode, ageOfCrop }) {
+    let connection = null;
+    try {
+      connection = await getConnection();
+
+      const sql = `
+        SELECT *
+        FROM KSNDMC.HORTI_MONTHS_CROPS_ADVISORY
+        WHERE (UPPER(CROP_NAME) = UPPER(:cropName) OR UPPER(CROP_NAME) LIKE UPPER(:cropName) || '%')
+          AND AGE_OF_THE_CROP = :ageOfCrop
+          AND UPPER(REGION_CODE) LIKE '%' || UPPER(:regionCode) || '%'
+          AND IS_ACTIVE = 'Y'
+      `;
+      let result = await connection.execute(
+        sql,
+        { cropName, ageOfCrop, regionCode },
+        { outFormat: oracledb.OUT_FORMAT_OBJECT }
+      );
+
+      return result.rows.map(row => {
+        const mapped = {};
+        Object.keys(row).forEach(key => {
+          mapped[key] = row[key];
+          mapped[key.toLowerCase()] = row[key];
+        });
+        return mapped;
+      });
+    } catch (error) {
+      console.error(`Error in fetchHortiMonthAdvisoryWithoutWeather:`, error.message);
+      throw error;
+    } finally {
+      if (connection) await closeConnection(connection);
+    }
+  },
+
+  /**
    * Helper to fetch sowing month periods for Horti Months crops from HORTI_MONTHS_CROPS_ADVISORY
    */
   async getHortiMonthsSowingPeriod(crop, regionCode) {
     let connection = null;
     try {
       connection = await getConnection();
-      const sql = `
+      const sqlWithRegion = `
         SELECT DISTINCT MONTH_IN_NUMBER
         FROM KSNDMC.HORTI_MONTHS_CROPS_ADVISORY
         WHERE (UPPER(CROP_NAME) = UPPER(:crop) OR UPPER(CROP_NAME) LIKE UPPER(:crop) || '%')
@@ -585,7 +709,7 @@ const ContingencyCropPlan = {
           AND IS_ACTIVE = 'Y'
           AND rownum <= 1
       `;
-      const result = await connection.execute(sql, { crop, regionCode }, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+      let result = await connection.execute(sqlWithRegion, { crop, regionCode }, { outFormat: oracledb.OUT_FORMAT_OBJECT });
       if (result.rows.length === 0) return null;
       return result.rows[0].MONTH_IN_NUMBER;
     } catch (error) {
@@ -603,15 +727,15 @@ const ContingencyCropPlan = {
     let connection = null;
     try {
       connection = await getConnection();
-      const sql = `
+      const sqlWithRegion = `
         SELECT DISTINCT AGE_OF_THE_CROP
         FROM KSNDMC.HORTI_MONTHS_CROPS_ADVISORY
         WHERE (UPPER(CROP_NAME) = UPPER(:cropName) OR UPPER(CROP_NAME) LIKE UPPER(:cropName) || '%')
           AND UPPER(REGION_CODE) LIKE '%' || UPPER(:regionCode) || '%'
           AND IS_ACTIVE = 'Y'
       `;
-      const result = await connection.execute(
-        sql,
+      let result = await connection.execute(
+        sqlWithRegion,
         { cropName, regionCode },
         { outFormat: oracledb.OUT_FORMAT_OBJECT }
       );
@@ -619,6 +743,29 @@ const ContingencyCropPlan = {
     } catch (error) {
       console.error(`Error in getHortiMonthAgeCategories:`, error.message);
       return [];
+    } finally {
+      if (connection) await closeConnection(connection);
+    }
+  },
+
+  /**
+   * Helper to retrieve crop details from REWARD_CROP_MASTER
+   */
+  async getCropFromMaster(cropName) {
+    let connection = null;
+    try {
+      connection = await getConnection();
+      const sql = `
+        SELECT CROP_ID, CROP_TYPE, CROP_NAME
+        FROM KSNDMC.REWARD_CROP_MASTER
+        WHERE UPPER(CROP_NAME) = UPPER(:cropName) AND rownum <= 1
+      `;
+      const result = await connection.execute(sql, [cropName], { outFormat: oracledb.OUT_FORMAT_OBJECT });
+      if (result.rows.length === 0) return null;
+      return result.rows[0];
+    } catch (error) {
+      console.error('Error in getCropFromMaster:', error.message);
+      return null;
     } finally {
       if (connection) await closeConnection(connection);
     }

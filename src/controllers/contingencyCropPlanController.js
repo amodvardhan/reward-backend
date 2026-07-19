@@ -24,6 +24,10 @@ function normalizeHortiCropNameForAdvisory(cropName) {
   if (upper === 'CARDMOM' || upper === 'CARDAMOM') return 'CARDAMOM';
   if (upper === 'BETELVINE' || upper === 'BEETLEVINE' || upper === 'BETEL VINE') return 'BETEL VINE';
   if (upper === 'PROMOGRANATE' || upper === 'POMEGRANATE') return 'POMEGRANATE';
+  if (upper === 'CHILLI' || upper === 'CHILLYS' || upper === 'CHILLIES') return 'CHILLIES';
+  if (upper === 'FRENCH BEANS' || upper === 'BEANS' || upper === 'FRENCH BEAN') return 'FRENCH BEAN';
+  if (upper === 'SWEAT POTATO' || upper === 'SWEET POTATO') return 'SWEET POTATO';
+  if (upper === 'LEMON' || upper === 'LENON') return 'LENON';
   return upper;
 }
 
@@ -146,7 +150,6 @@ function normalizeCropName(cropName, tableType, region) {
 
   if (tableType === 'ADVISORY') {
     if (upper === 'FINGER MILLET') return 'RAGI';
-    if (upper === 'BROWN TOP MILLET') return 'BROWNTOP MILLET';
     if (upper === 'RICE (IR)' || upper === 'RICE(IR)' || upper === 'RICE') {
       return (cleanRegion.includes('NIK') || cleanRegion === '2.NIK') ? 'PADDY' : 'RICE';
     }
@@ -156,97 +159,82 @@ function normalizeCropName(cropName, tableType, region) {
   return upper;
 }
 
+const SOWING_RULES = {
+  SIK: {
+    GROUNDNUT: () => 'June',
+    REDGRAM: (month, day) => {
+      if ((month === 5 && day >= 15) || month === 6) return 'MAY 15 - JUNE 30';
+      if (month === 7) return 'JULY 1 - JULY 31';
+      if (month === 8 && day <= 20) return 'August 1 - August 20';
+      if (month < 5 || (month === 5 && day < 15)) return 'MAY 15 - JUNE 30';
+      return 'August 1 - August 20';
+    },
+    GREENGRAM: () => 'January-February & April-May',
+    SORGHUM: () => 'September 15 to October 15',
+    'FOXTAIL MILLET': (month) => {
+      if (month === 1) return 'January';
+      if (month === 5) return 'May-August';
+      return 'June-August';
+    },
+    SUGARCANE: (month) => {
+      if (month === 1 || month === 2) return 'January-February';
+      if (month === 7 || month === 8) return 'July-August';
+      return 'Oct-November';
+    },
+    FIELDBEAN: () => 'FEB-AUG-SEP',
+    CASTOR: (month) => (month === 7 ? 'MAY-JULY' : 'MAY-JUNE'),
+    'PROSO MILLET': (month) => (month === 5 ? 'May-July' : 'June-July'),
+    RAGI: (month, day) => resolveRagiSowing(month, day),
+    'FINGER MILLET': (month, day) => resolveRagiSowing(month, day),
+    'BARNYARD MILLET': () => 'MAY-JULY',
+    'BROWN TOP MILLET': () => 'MAY-JULY',
+    MAIZE: () => 'JUNE-JULY',
+    SUNFLOWER: () => 'JUNE-JULY',
+    HORSEGRAM: () => 'AUG-SEP'
+  },
+  NIK: {
+    SORGHUM: () => 'June, Sept 15 - Oct 15',
+    SUGARCANE: () => 'Jul-Aug, Oct-Nov',
+    SOYABEAN: () => 'JULY-15',
+    COWPEA: () => 'JULY - AUGUST',
+    'RICE (IR)': () => 'June-July, October',
+    RICE: () => 'June-July, October',
+    PADDY: () => 'June-July, October',
+    'BARNYARD MILLET': () => 'June - July',
+    BAJRA: () => 'June-July',
+    COTTON: () => 'June-July',
+    MAIZE: () => 'June-July',
+    BLACKGRAM: () => 'JUNE',
+    GROUNDNUT: () => 'June',
+    'LITTLE MILLET': () => 'June',
+    'PROSO MILLET': () => 'June',
+    CHICKPEA: () => '  OCTOBER - NOVEMBER',
+    WHEAT: () => 'Oct 15 - Nov 15',
+    SUNFLOWER: () => 'AUG  (KHARIF), SEP-OCT (RABI)',
+    'BROWN TOP MILLET': () => 'MAY-JULY'
+  }
+};
+
+function resolveRagiSowing(month, day) {
+  if (month === 6) return 'June-July';
+  if (month === 7) return day <= 15 ? 'June-July' : 'July-August';
+  if (month === 8) return day <= 15 ? 'July-August' : 'August-September';
+  if (month === 9) return 'August-September';
+  return 'June-July';
+}
+
 function resolveSowingMonth(crop, region, sowingDate, blockingPeriod) {
   const upperCrop = crop.toUpperCase().trim();
   const month = sowingDate.getMonth() + 1; // 1-12
   const day = sowingDate.getDate();
-
   const cleanRegion = region ? region.toUpperCase().trim() : '';
 
-  if (cleanRegion.includes('SIK')) {
-    if (upperCrop === 'GROUNDNUT') {
-      return 'June';
-    }
+  const regionRules = cleanRegion.includes('SIK')
+    ? SOWING_RULES.SIK
+    : (cleanRegion.includes('NIK') ? SOWING_RULES.NIK : null);
 
-    if (upperCrop === 'REDGRAM') {
-      if ((month === 5 && day >= 15) || month === 6) {
-        return 'MAY 15 - JUNE 30';
-      }
-      if (month === 7) {
-        return 'JULY 1 - JULY 31';
-      }
-      if (month === 8 && day <= 20) {
-        return 'August 1 - August 20';
-      }
-      if (month < 5 || (month === 5 && day < 15)) {
-        return 'MAY 15 - JUNE 30';
-      }
-      return 'August 1 - August 20';
-    }
-
-    if (upperCrop === 'GREENGRAM') {
-      return 'January-February & April-May';
-    }
-
-    if (upperCrop === 'SORGHUM') {
-      return 'September 15 to October 15';
-    }
-
-    if (upperCrop === 'FOXTAIL MILLET') {
-      if (month === 1) return 'January';
-      if (month === 5) return 'May-August';
-      return 'June-August';
-    }
-
-    if (upperCrop === 'SUGARCANE') {
-      if (month === 1 || month === 2) return 'January-February';
-      if (month === 7 || month === 8) return 'July-August';
-      return 'Oct-November';
-    }
-
-    if (upperCrop === 'FIELDBEAN') {
-      return 'FEB-AUG-SEP';
-    }
-
-    if (upperCrop === 'CASTOR') {
-      if (month === 7) return 'MAY-JULY';
-      return 'MAY-JUNE';
-    }
-
-    if (upperCrop === 'PROSO MILLET') {
-      if (month === 5) return 'May-July';
-      return 'June-July';
-    }
-
-    if (upperCrop === 'RAGI' || upperCrop === 'FINGER MILLET') {
-      if (month === 6) return 'June-July';
-      if (month === 7) {
-        return day <= 15 ? 'June-July' : 'July-August';
-      }
-      if (month === 8) {
-        return day <= 15 ? 'July-August' : 'August-September';
-      }
-      if (month === 9) return 'August-September';
-      return 'June-July';
-    }
-  }
-
-  if (cleanRegion.includes('NIK')) {
-    if (upperCrop === 'SORGHUM') {
-      return 'June, Sept 15 - Oct 15';
-    }
-    if (upperCrop === 'SUGARCANE') {
-      return 'Jul-Aug, Oct-Nov';
-    }
-    if (upperCrop === 'SOYABEAN') {
-      return 'JULY-15';
-    }
-    if (upperCrop === 'COWPEA') {
-      return 'JULY - AUGUST';
-    }
-    if (upperCrop === 'RICE (IR)' || upperCrop === 'RICE' || upperCrop === 'PADDY') {
-      return 'June-July, October';
-    }
+  if (regionRules && regionRules[upperCrop]) {
+    return regionRules[upperCrop](month, day);
   }
 
   return normalizeSowingMonth(blockingPeriod);
@@ -335,16 +323,27 @@ exports.getContingencyCropPlan = async (req, res) => {
 
     // Determine crop type
     const durationCropName = normalizeCropName(targetCrop, 'DURATION', cleanRegion);
-    const cropDetails = await ContingencyCropPlan.getCropVarietyDuration(durationCropName, cleanRegion);
-    let cropType = '';
-    let resolvedCropId = null;
-    let resolvedCropDuration = '';
-
-    if (cropDetails) {
-      cropType = (cropDetails.crop_type || '').trim().toUpperCase();
-      resolvedCropId = cropDetails.crop_id || cropDetails.CROP_ID;
-      resolvedCropDuration = cropDetails.crop_duration || cropDetails.CROP_DURATION;
+    let cropDetails = await ContingencyCropPlan.getCropVarietyDuration(durationCropName, cleanRegion);
+    if (!cropDetails) {
+      const masterCrop = await ContingencyCropPlan.getCropFromMaster(durationCropName);
+      if (masterCrop) {
+        cropDetails = {
+          crop_type: masterCrop.CROP_TYPE || masterCrop.crop_type || 'AGRICULTURE',
+          crop_id: masterCrop.CROP_ID || masterCrop.crop_id || null,
+          crop_duration: 120
+        };
+      } else {
+        cropDetails = {
+          crop_type: 'AGRICULTURE',
+          crop_id: null,
+          crop_duration: 120
+        };
+      }
     }
+
+    let cropType = (cropDetails.crop_type || '').trim().toUpperCase();
+    let resolvedCropId = cropDetails.crop_id || cropDetails.CROP_ID;
+    let resolvedCropDuration = cropDetails.crop_duration || cropDetails.CROP_DURATION;
 
     const upperCrop = targetCrop.toUpperCase().trim();
     if (upperCrop === 'FIELDBEAN') {
@@ -393,10 +392,6 @@ exports.getContingencyCropPlan = async (req, res) => {
 
         if (!prevRainCategory) prevRainCategory = rainCategory;
         if (!nextRainCategory) nextRainCategory = forecastRain;
-
-        if (prevRainCategory === 'NORMAL') {
-          nextRainCategory = 'YES';
-        }
       }
 
       if (!isMonthsHorti) {
@@ -933,10 +928,6 @@ async function handleAgricultureAdvisory(req, res, {
 
     if (!prevRainCategory) prevRainCategory = rainCategory;
     if (!nextRainCategory) nextRainCategory = forecastRain;
-
-    if (prevRainCategory === 'NORMAL') {
-      nextRainCategory = 'YES';
-    }
   }
 
   console.log(`[${new Date().toISOString()}] Rain Categories - Previous Week: ${prevRainCategory}, Forecast: ${nextRainCategory}, DAS: ${das}`);
@@ -962,18 +953,49 @@ async function handleAgricultureAdvisory(req, res, {
     }
   }
 
-  // Fallback to NIL/NIL rainfall if no match is found (weather-independent post-harvest stages)
-  if (!matchedAdvisory && (prevRainCategory !== 'NIL' || nextRainCategory !== 'NIL')) {
-    console.log(`[${new Date().toISOString()}] No active weather advisory matched. Falling back to NIL/NIL weather-independent query...`);
-    const fallbackAdvisories = await ContingencyCropPlan.fetchFieldCropAdvisory({
+  // Hierarchical Weather Fallbacks
+  if (!matchedAdvisory) {
+    const weatherFallbacks = [
+      { prev: 'BELOW NORMAL', next: 'NO' },
+      { prev: 'NORMAL', next: 'NO' },
+      { prev: 'ABOVE NORMAL', next: 'NO' },
+      { prev: 'BELOW NORMAL', next: 'YES' },
+      { prev: 'NORMAL', next: 'YES' },
+      { prev: 'ABOVE NORMAL', next: 'YES' },
+      { prev: 'NIL', next: 'NIL' }
+    ];
+
+    for (const fb of weatherFallbacks) {
+      if (fb.prev === prevRainCategory && fb.next === nextRainCategory) continue;
+      console.log(`[${new Date().toISOString()}] Trying weather fallback: ${fb.prev} / ${fb.next}`);
+      const fbAdvisories = await ContingencyCropPlan.fetchFieldCropAdvisory({
+        cropName: advisoryCropName,
+        cropId: cropId,
+        sowingMonth: sowingMonthNorm,
+        prevRainfall: fb.prev,
+        nextRainfall: fb.next,
+        regionCode: cleanRegion
+      });
+      for (const adv of fbAdvisories) {
+        if (matchDas(das, adv.das_of_crop)) {
+          matchedAdvisory = adv;
+          break;
+        }
+      }
+      if (matchedAdvisory) break;
+    }
+  }
+
+  // Final fallback: fetch ANY row for this crop and region matching the DAS (weather-independent)
+  if (!matchedAdvisory) {
+    console.log(`[${new Date().toISOString()}] No weather-specific advisory matched. Fetching any weather row...`);
+    const allAdvisories = await ContingencyCropPlan.fetchFieldCropAdvisoryWithoutWeather({
       cropName: advisoryCropName,
       cropId: cropId,
       sowingMonth: sowingMonthNorm,
-      prevRainfall: 'NIL',
-      nextRainfall: 'NIL',
       regionCode: cleanRegion
     });
-    for (const adv of fallbackAdvisories) {
+    for (const adv of allAdvisories) {
       if (matchDas(das, adv.das_of_crop)) {
         matchedAdvisory = adv;
         break;
@@ -1042,19 +1064,40 @@ async function handleHortiWeeksAdvisory(req, res, {
   // Standard round off: e.g. 22/7 should be 3.1 -> 3
   const weeks = Math.round(das / 7);
 
-  const advisories = await ContingencyCropPlan.fetchHortiWeekAdvisory({
-    cropName: targetCrop,
-    prevRainfall: activePrevRain,
-    nextRainfall: activeNextRain,
+  const normCrop = normalizeHortiCropNameForAdvisory(targetCrop);
+
+  // 1. Fetch all weekly advisories for this crop and region
+  const allAdvisories = await ContingencyCropPlan.fetchHortiWeekAdvisoryWithoutWeather({
+    cropName: normCrop,
     regionCode: cleanRegion
   });
 
-  if (advisories.length === 0) {
-    console.log(`[${new Date().toISOString()}] No advisories found in HORTI_WEEKS_CROPS_ADVISORY for crop: ${targetCrop}`);
+  if (allAdvisories.length === 0) {
+    console.log(`[${new Date().toISOString()}] No advisories found in HORTI_WEEKS_CROPS_ADVISORY for crop: ${normCrop}`);
     return ApiResponse.error(res, 404, `No crop advisories found for crop ${targetCrop} in region ${cleanRegion}`);
   }
 
-  let matchedAdvisory = null;
+  // 2. Determine minWeek from all available advisories
+  let minWeek = 9999;
+  let minWeekAdvisory = null;
+  for (const adv of allAdvisories) {
+    const weeksField = adv.weeks_in_number || adv.WEEKS_IN_NUMBER || adv.crop_period_in_weeks || adv.CROP_PERIOD_IN_WEEKS;
+    if (weeksField) {
+      const parts = String(weeksField).split('-');
+      const val = parseInt(parts[0].trim(), 10);
+      if (!isNaN(val) && val < minWeek) {
+        minWeek = val;
+        minWeekAdvisory = adv;
+      }
+    }
+  }
+
+  let queryWeek = weeks;
+  if (weeks < minWeek && minWeekAdvisory) {
+    queryWeek = minWeek;
+  }
+
+  // 3. Filter advisories that match queryWeek and Cabbage sowing month if applicable
   const upperCrop = targetCrop.toUpperCase().trim();
   const isCabbage = upperCrop === 'CABBAGE';
   let cabbageSowingMonth = '';
@@ -1063,23 +1106,56 @@ async function handleHortiWeeksAdvisory(req, res, {
     cabbageSowingMonth = monthsLong[parsedShowingDate.getMonth()];
   }
 
-  for (const adv of advisories) {
+  const stageAdvisories = [];
+  for (const adv of allAdvisories) {
     const weeksField = adv.weeks_in_number || adv.WEEKS_IN_NUMBER || adv.crop_period_in_weeks || adv.CROP_PERIOD_IN_WEEKS;
-    if (matchDas(weeks, weeksField)) {
+    if (matchDas(queryWeek, weeksField)) {
       const rowSowingMonth = adv.sowing_month || adv.SOWING_MONTH;
       if (isCabbage && rowSowingMonth && rowSowingMonth !== 'NIL') {
         if (!rowSowingMonth.toUpperCase().includes(cabbageSowingMonth)) {
           continue;
         }
       }
-      matchedAdvisory = adv;
-      break;
+      stageAdvisories.push(adv);
     }
   }
 
-  if (!matchedAdvisory) {
+  if (stageAdvisories.length === 0) {
     console.log(`[${new Date().toISOString()}] No matching week advisory for week: ${weeks}`);
     return ApiResponse.error(res, 404, `No matching week advisory found for crop ${targetCrop} at week ${weeks} in region ${cleanRegion}`);
+  }
+
+  // 4. Match the weather profile among the matched stage advisories
+  let matchedAdvisory = stageAdvisories.find(adv => {
+    const prevRain = adv.previous_week_rainfall || adv.PREVIOUS_WEEK_RAINFALL;
+    const nextRain = adv.next_week_rainfall_forecast || adv.NEXT_WEEK_RAINFALL_FORECAST;
+    return prevRain === activePrevRain && nextRain === activeNextRain;
+  });
+
+  // Weather fallback cascade within the stage
+  if (!matchedAdvisory) {
+    const weatherFallbacks = [
+      { prev: 'BELOW NORMAL', next: 'NO' },
+      { prev: 'NORMAL', next: 'NO' },
+      { prev: 'ABOVE NORMAL', next: 'NO' },
+      { prev: 'BELOW NORMAL', next: 'YES' },
+      { prev: 'NORMAL', next: 'YES' },
+      { prev: 'ABOVE NORMAL', next: 'YES' }
+    ];
+    for (const fb of weatherFallbacks) {
+      if (fb.prev === activePrevRain && fb.next === activeNextRain) continue;
+      matchedAdvisory = stageAdvisories.find(adv => {
+        const prevRain = adv.previous_week_rainfall || adv.PREVIOUS_WEEK_RAINFALL;
+        const nextRain = adv.next_week_rainfall_forecast || adv.NEXT_WEEK_RAINFALL_FORECAST;
+        return prevRain === fb.prev && nextRain === fb.next;
+      });
+      if (matchedAdvisory) break;
+    }
+  }
+
+  // Final fallback: if still no match, pick the first matched stage advisory
+  if (!matchedAdvisory) {
+    matchedAdvisory = stageAdvisories[0];
   }
 
   const knMeasures = fixKannadaGarbage(matchedAdvisory.agriculture_measures_kn || matchedAdvisory.AGRICULTURE_MEASURES_KN);
@@ -1120,47 +1196,61 @@ function resolveAgeCategory(categories, monthsAfterSowing) {
 
   const cleaned = categories.map(c => c ? c.trim() : '').filter(Boolean);
 
-  const hasLessThanOne = cleaned.includes('<1') || cleaned.includes('< 1');
-  const hasGreaterThanOne = cleaned.includes('>1') || cleaned.includes('> 1');
-  const hasGreaterThanTwo = cleaned.includes('>2') || cleaned.includes('> 2');
-  const hasGreaterThanFour = cleaned.includes('>4') || cleaned.includes('> 4');
-  const intermediate = cleaned.find(c => c.includes('-'));
-
+  // 1. If monthsAfterSowing is less than 12, try to find a "<1" category
   if (monthsAfterSowing < 12) {
-    if (hasLessThanOne) {
-      return cleaned.find(c => c.includes('<1') || c === '< 1') || '<1';
-    }
-    // If we only have >1 and no <1 (like Lemon NIK), map <12 months to >1
-    if (hasGreaterThanOne && !hasLessThanOne && hasGreaterThanFour) {
-      return cleaned.find(c => c.includes('>1') || c === '> 1') || '>1';
-    }
-    return '<1';
+    const lessThanOneCat = cleaned.find(c => c.includes('<1') || c === '< 1');
+    if (lessThanOneCat) return lessThanOneCat;
   }
 
-  if (intermediate) {
-    const parts = intermediate.split('-');
-    if (parts.length === 2) {
-      const maxYears = parseInt(parts[1].trim(), 10);
-      if (!isNaN(maxYears)) {
-        const maxMonths = maxYears * 12;
-        if (monthsAfterSowing <= maxMonths) {
-          return intermediate;
+  // 2. Try to find a matching intermediate range like "1-3" or "1-4"
+  for (const cat of cleaned) {
+    if (cat.includes('-')) {
+      const parts = cat.split('-');
+      if (parts.length === 2) {
+        const minYears = parseInt(parts[0].trim(), 10);
+        const maxYears = parseInt(parts[1].trim(), 10);
+        if (!isNaN(minYears) && !isNaN(maxYears)) {
+          const minMonths = minYears * 12;
+          const maxMonths = maxYears * 12;
+          if (monthsAfterSowing >= minMonths && monthsAfterSowing <= maxMonths) {
+            return cat;
+          }
         }
       }
     }
   }
 
-  if (hasGreaterThanFour) {
-    return cleaned.find(c => c.includes('>4') || c === '> 4') || '>4';
-  }
-  if (hasGreaterThanTwo) {
-    return cleaned.find(c => c.includes('>2') || c === '> 2') || '>2';
-  }
-  if (hasGreaterThanOne) {
-    return cleaned.find(c => c.includes('>1') || c === '> 1') || '>1';
+  // 3. Try to find the best matching greater-than category (e.g. ">3", ">4")
+  let bestGtCat = null;
+  let bestGtMonths = -1;
+
+  for (const cat of cleaned) {
+    const match = cat.match(/>\s*(\d+)/);
+    if (match) {
+      const gtYears = parseInt(match[1], 10);
+      const gtMonths = gtYears * 12;
+      if (monthsAfterSowing > gtMonths && gtMonths > bestGtMonths) {
+        bestGtMonths = gtMonths;
+        bestGtCat = cat;
+      }
+    }
   }
 
-  return '>4';
+  if (bestGtCat) {
+    return bestGtCat;
+  }
+
+  // 4. Default fallbacks if no match
+  if (monthsAfterSowing < 12) {
+    return '<1';
+  }
+
+  const gtCategories = cleaned.filter(c => c.includes('>'));
+  if (gtCategories.length > 0) {
+    return gtCategories[0];
+  }
+
+  return cleaned[0] || '>3';
 }
 
 /**
@@ -1201,7 +1291,42 @@ async function handleHortiMonthsAdvisory(req, res, {
     ageOfCrop: ageCategory
   });
 
-  if (advisories.length === 0) {
+  let activeAdvisories = advisories;
+  if (activeAdvisories.length === 0) {
+    const weatherFallbacks = [
+      { prev: 'BELOW NORMAL', next: 'NO' },
+      { prev: 'NORMAL', next: 'NO' },
+      { prev: 'ABOVE NORMAL', next: 'NO' },
+      { prev: 'BELOW NORMAL', next: 'YES' },
+      { prev: 'NORMAL', next: 'YES' },
+      { prev: 'ABOVE NORMAL', next: 'YES' }
+    ];
+    for (const fb of weatherFallbacks) {
+      if (fb.prev === activePrevRain && fb.next === activeNextRain) continue;
+      const fbAdvisories = await ContingencyCropPlan.fetchHortiMonthAdvisory({
+        cropName: normCrop,
+        prevRainfall: fb.prev,
+        nextRainfall: fb.next,
+        regionCode: cleanRegion,
+        ageOfCrop: ageCategory
+      });
+      if (fbAdvisories.length > 0) {
+        activeAdvisories = fbAdvisories;
+        break;
+      }
+    }
+  }
+
+  if (activeAdvisories.length === 0) {
+    console.log(`[${new Date().toISOString()}] No weather-specific monthly advisories found. Fetching any...`);
+    activeAdvisories = await ContingencyCropPlan.fetchHortiMonthAdvisoryWithoutWeather({
+      cropName: normCrop,
+      regionCode: cleanRegion,
+      ageOfCrop: ageCategory
+    });
+  }
+
+  if (activeAdvisories.length === 0) {
     console.log(`[${new Date().toISOString()}] No advisories found in HORTI_MONTHS_CROPS_ADVISORY for crop: ${targetCrop}`);
     return ApiResponse.error(res, 404, `No crop advisories found for crop ${targetCrop} in region ${cleanRegion}`);
   }
@@ -1209,7 +1334,7 @@ async function handleHortiMonthsAdvisory(req, res, {
   const currentMonthIndex = today.getMonth() + 1;
   let matchedAdvisory = null;
 
-  for (const adv of advisories) {
+  for (const adv of activeAdvisories) {
     const monthsStr = adv.month_in_number || adv.MONTH_IN_NUMBER || '';
     const monthsList = monthsStr.toString().split(',').map(m => m.trim());
     if (monthsList.includes(currentMonthIndex.toString())) {
@@ -1219,7 +1344,7 @@ async function handleHortiMonthsAdvisory(req, res, {
   }
 
   if (!matchedAdvisory) {
-    matchedAdvisory = advisories[0];
+    matchedAdvisory = activeAdvisories[0];
   }
 
   const knMeasures = fixKannadaGarbage(matchedAdvisory.agriculture_measures_kn || matchedAdvisory.AGRICULTURE_MEASURES_KN);
