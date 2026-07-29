@@ -474,6 +474,34 @@ const ContingencyCropPlan = {
         { outFormat: oracledb.OUT_FORMAT_OBJECT }
       );
 
+      if (result.rows.length === 0) {
+        console.log(`fetchFieldCropAdvisory: No rows found for ${cropName} in ${regionCode}, falling back to any region`);
+        const fallbackSql = `
+          SELECT
+            PREVIOUS_WEEK_RAINFALL,
+            NEXT_WEEK_RAINFALL_FORECAST,
+            CROP_NAME,
+            AGRICULTURE_MEASURES_KN,
+            PLANT_PROTECTION_MEARURES_KN,
+            AGRICULTURE_MEASURES_EN,
+            PLANT_PROTECTION_MEARURES_EN,
+            DEFINED_DAS_OF_CROP,
+            DAS_OF_CROP
+          FROM KSNDMC.FIELD_CROPS_ADVISORY
+          WHERE UPPER(CROP_NAME) = UPPER(:cropName)
+            AND (CROP_ID = :cropId OR CROP_ID IS NULL)
+            AND REPLACE(UPPER(SOWING_MONTH), ' ', '') = REPLACE(UPPER(:sowingMonth), ' ', '')
+            AND PREVIOUS_WEEK_RAINFALL = :prevRainfall
+            AND NEXT_WEEK_RAINFALL_FORECAST = :nextRainfall
+            AND IS_ACTIVE = 'Y'
+        `;
+        result = await connection.execute(
+          fallbackSql,
+          { cropName, cropId: cropIdNum, sowingMonth, prevRainfall, nextRainfall },
+          { outFormat: oracledb.OUT_FORMAT_OBJECT }
+        );
+      }
+
       return result.rows.map(row => {
         const mapped = {};
         Object.keys(row).forEach(key => {
@@ -525,6 +553,32 @@ const ContingencyCropPlan = {
         { outFormat: oracledb.OUT_FORMAT_OBJECT }
       );
 
+      if (result.rows.length === 0) {
+        console.log(`fetchFieldCropAdvisoryWithoutWeather: No rows found for ${cropName} in ${regionCode}, falling back to any region`);
+        const fallbackSql = `
+          SELECT
+            PREVIOUS_WEEK_RAINFALL,
+            NEXT_WEEK_RAINFALL_FORECAST,
+            CROP_NAME,
+            AGRICULTURE_MEASURES_KN,
+            PLANT_PROTECTION_MEARURES_KN,
+            AGRICULTURE_MEASURES_EN,
+            PLANT_PROTECTION_MEARURES_EN,
+            DEFINED_DAS_OF_CROP,
+            DAS_OF_CROP
+          FROM KSNDMC.FIELD_CROPS_ADVISORY
+          WHERE UPPER(CROP_NAME) = UPPER(:cropName)
+            AND (CROP_ID = :cropId OR CROP_ID IS NULL)
+            AND REPLACE(UPPER(SOWING_MONTH), ' ', '') = REPLACE(UPPER(:sowingMonth), ' ', '')
+            AND IS_ACTIVE = 'Y'
+        `;
+        result = await connection.execute(
+          fallbackSql,
+          { cropName, cropId: cropIdNum, sowingMonth },
+          { outFormat: oracledb.OUT_FORMAT_OBJECT }
+        );
+      }
+
       return result.rows.map(row => {
         const mapped = {};
         Object.keys(row).forEach(key => {
@@ -564,6 +618,23 @@ const ContingencyCropPlan = {
         { outFormat: oracledb.OUT_FORMAT_OBJECT }
       );
 
+      if (result.rows.length === 0) {
+        console.log(`fetchHortiWeekAdvisory: No rows found for ${cropName} in ${regionCode}, falling back to any region`);
+        const fallbackSql = `
+          SELECT *
+          FROM KSNDMC.HORTI_WEEKS_CROPS_ADVISORY
+          WHERE (UPPER(CROP_NAME) = UPPER(:cropName) OR UPPER(CROP_NAME) LIKE UPPER(:cropName) || '%')
+            AND PREVIOUS_WEEK_RAINFALL = :prevRainfall
+            AND NEXT_WEEK_RAINFALL_FORECAST = :nextRainfall
+            AND IS_ACTIVE = 'Y'
+        `;
+        result = await connection.execute(
+          fallbackSql,
+          { cropName, prevRainfall, nextRainfall },
+          { outFormat: oracledb.OUT_FORMAT_OBJECT }
+        );
+      }
+
       return result.rows.map(row => {
         const mapped = {};
         Object.keys(row).forEach(key => {
@@ -599,6 +670,22 @@ const ContingencyCropPlan = {
         { cropName, regionCode },
         { outFormat: oracledb.OUT_FORMAT_OBJECT }
       );
+
+      if (result.rows.length === 0) {
+        console.log(`fetchHortiWeekAdvisoryWithoutWeather: No rows found for ${cropName} in ${regionCode}, falling back to any region`);
+        const fallbackSql = `
+          SELECT *
+          FROM KSNDMC.HORTI_WEEKS_CROPS_ADVISORY
+          WHERE (UPPER(CROP_NAME) = UPPER(:cropName) OR UPPER(CROP_NAME) LIKE UPPER(:cropName) || '%')
+            AND IS_ACTIVE = 'Y'
+        `;
+        result = await connection.execute(
+          fallbackSql,
+          { cropName },
+          { outFormat: oracledb.OUT_FORMAT_OBJECT }
+        );
+      }
+
       return result.rows.map(row => {
         const mapped = {};
         Object.keys(row).forEach(key => {
@@ -639,6 +726,24 @@ const ContingencyCropPlan = {
         { outFormat: oracledb.OUT_FORMAT_OBJECT }
       );
 
+      if (result.rows.length === 0) {
+        console.log(`fetchHortiMonthAdvisory: No rows found for ${cropName} in ${regionCode}, falling back to any region`);
+        const fallbackSql = `
+          SELECT *
+          FROM KSNDMC.HORTI_MONTHS_CROPS_ADVISORY
+          WHERE (UPPER(CROP_NAME) = UPPER(:cropName) OR UPPER(CROP_NAME) LIKE UPPER(:cropName) || '%')
+            AND AGE_OF_THE_CROP = :ageOfCrop
+            AND PREVIOUS_MONTH_RAINFALL = :prevRainfall
+            AND NEXT_MONTH_RAINFALL_FORECAST = :nextRainfall
+            AND IS_ACTIVE = 'Y'
+        `;
+        result = await connection.execute(
+          fallbackSql,
+          { cropName, ageOfCrop, prevRainfall, nextRainfall },
+          { outFormat: oracledb.OUT_FORMAT_OBJECT }
+        );
+      }
+
       return result.rows.map(row => {
         const mapped = {};
         Object.keys(row).forEach(key => {
@@ -676,6 +781,22 @@ const ContingencyCropPlan = {
         { cropName, ageOfCrop, regionCode },
         { outFormat: oracledb.OUT_FORMAT_OBJECT }
       );
+
+      if (result.rows.length === 0) {
+        console.log(`fetchHortiMonthAdvisoryWithoutWeather: No rows found for ${cropName} in ${regionCode}, falling back to any region`);
+        const fallbackSql = `
+          SELECT *
+          FROM KSNDMC.HORTI_MONTHS_CROPS_ADVISORY
+          WHERE (UPPER(CROP_NAME) = UPPER(:cropName) OR UPPER(CROP_NAME) LIKE UPPER(:cropName) || '%')
+            AND AGE_OF_THE_CROP = :ageOfCrop
+            AND IS_ACTIVE = 'Y'
+        `;
+        result = await connection.execute(
+          fallbackSql,
+          { cropName, ageOfCrop },
+          { outFormat: oracledb.OUT_FORMAT_OBJECT }
+        );
+      }
 
       return result.rows.map(row => {
         const mapped = {};

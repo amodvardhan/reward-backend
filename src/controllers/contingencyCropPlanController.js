@@ -223,7 +223,8 @@ const SOWING_RULES = {
     'BROWN TOP MILLET': () => 'MAY-JULY',
     'FOXTAIL MILLET': () => 'June-July',
     GREENGRAM: () => 'JUNE - JULY',
-    REDGRAM: () => 'JUNE-JULY'
+    REDGRAM: () => 'JUNE-JULY',
+    FIELDBEAN: () => 'FEB-AUG-SEP'
   }
 };
 
