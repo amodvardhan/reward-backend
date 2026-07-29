@@ -349,21 +349,23 @@ exports.getCrops = async (req, res) => {
     let connection;
     try {
         connection = await getConnection();
-        const { lang, mobileNo, region } = req.query;
+        const lang = req.query.lang || req.query.LANG || 'en';
+        const mobileNo = req.query.mobileNo || req.query.mobile_no || req.query.MOBILE_NO;
+        const region = req.query.region || req.query.region_code || req.query.REGION_CODE;
 
         // Resolve farmer's region if mobileNo is provided
         let resolvedRegion = null;
         if (region) {
-            resolvedRegion = region.trim();
+            resolvedRegion = String(region).trim();
         } else if (mobileNo) {
             const farmerSql = `SELECT DISTRICT FROM KSNDMC.REWARD_FARMER_DETAILS WHERE MOBILE_NO = :mobileNo`;
-            const farmerRes = await connection.execute(farmerSql, { mobileNo }, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+            const farmerRes = await connection.execute(farmerSql, { mobileNo: String(mobileNo).trim() }, { outFormat: oracledb.OUT_FORMAT_OBJECT });
             if (farmerRes.rows.length > 0) {
                 const district = farmerRes.rows[0].DISTRICT;
-                const regionSql = `SELECT REGION_CODE FROM KSNDMC.REWARD_REGION_MASTER WHERE UPPER(DISTRICT) = UPPER(:district) AND rownum <= 1`;
+                const regionSql = `SELECT REWARD_REGION FROM KSNDMC.REWARD_REGION_MASTER WHERE UPPER(DISTRICT) = UPPER(:district) AND rownum <= 1`;
                 const regionRes = await connection.execute(regionSql, { district }, { outFormat: oracledb.OUT_FORMAT_OBJECT });
                 if (regionRes.rows.length > 0) {
-                    resolvedRegion = regionRes.rows[0].REGION_CODE;
+                    resolvedRegion = regionRes.rows[0].REWARD_REGION;
                 }
             }
         }
@@ -385,8 +387,7 @@ exports.getCrops = async (req, res) => {
                   AND (
                       EXISTS (
                           SELECT 1 FROM KSNDMC.BLOCKING_PERIOD b
-                          WHERE UPPER(b.REGION_CODE) LIKE '%' || :region || '%'
-                            AND b.IS_ACTIVE = 'Y'
+                          WHERE b.IS_ACTIVE = 'Y'
                             AND (
                                 UPPER(b.CROP_NAME) = UPPER(m.CROP_NAME)
                                 OR (UPPER(m.CROP_NAME) = 'RAGI' AND UPPER(b.CROP_NAME) = 'FINGER MILLET')
@@ -397,8 +398,7 @@ exports.getCrops = async (req, res) => {
                       OR
                       EXISTS (
                           SELECT 1 FROM KSNDMC.FIELD_CROPS_ADVISORY f
-                          WHERE UPPER(f.REGION_CODE) LIKE '%' || :region || '%'
-                            AND f.IS_ACTIVE = 'Y'
+                          WHERE f.IS_ACTIVE = 'Y'
                             AND (
                                 UPPER(f.CROP_NAME) = UPPER(m.CROP_NAME)
                                 OR (UPPER(m.CROP_NAME) = 'RAGI' AND UPPER(f.CROP_NAME) = 'FINGER MILLET')
@@ -409,15 +409,13 @@ exports.getCrops = async (req, res) => {
                       OR
                       EXISTS (
                           SELECT 1 FROM KSNDMC.HORTI_WEEKS_CROPS_ADVISORY hw
-                          WHERE (UPPER(hw.CROP_NAME) = UPPER(m.CROP_NAME) OR UPPER(hw.CROP_NAME) LIKE UPPER(m.CROP_NAME) || '%')
-                            AND UPPER(hw.REGION_CODE) LIKE '%' || :region || '%'
+                          WHERE (REPLACE(UPPER(hw.CROP_NAME), ' ', '') = REPLACE(UPPER(m.CROP_NAME), ' ', '') OR REPLACE(UPPER(hw.CROP_NAME), ' ', '') LIKE REPLACE(UPPER(m.CROP_NAME), ' ', '') || '%')
                             AND hw.IS_ACTIVE = 'Y'
                       )
                       OR
                       EXISTS (
                           SELECT 1 FROM KSNDMC.HORTI_MONTHS_CROPS_ADVISORY hm
-                          WHERE (UPPER(hm.CROP_NAME) = UPPER(m.CROP_NAME) OR UPPER(hm.CROP_NAME) LIKE UPPER(m.CROP_NAME) || '%')
-                            AND UPPER(hm.REGION_CODE) LIKE '%' || :region || '%'
+                          WHERE (REPLACE(UPPER(hm.CROP_NAME), ' ', '') = REPLACE(UPPER(m.CROP_NAME), ' ', '') OR REPLACE(UPPER(hm.CROP_NAME), ' ', '') LIKE REPLACE(UPPER(m.CROP_NAME), ' ', '') || '%')
                             AND hm.IS_ACTIVE = 'Y'
                       )
                   )
@@ -456,6 +454,7 @@ exports.getCropMaster = async (req, res) => {
 
         const regionCodeRaw = req.query.region_code || req.query.REGION_CODE;
         const cropTypeRaw = req.query.crop_type || req.query.CROP_TYPE;
+        const mobileNoRaw = req.query.mobileNo || req.query.mobile_no || req.query.MOBILE_NO;
         const lang = req.query.lang || req.query.LANG || 'en';
 
         let regionCode = null;
@@ -463,6 +462,22 @@ exports.getCropMaster = async (req, res) => {
             const val = String(regionCodeRaw).trim();
             if (val && val.toLowerCase() !== 'null' && val.toLowerCase() !== 'undefined') {
                 regionCode = val;
+            }
+        }
+
+        if (!regionCode && mobileNoRaw) {
+            const mobileNo = String(mobileNoRaw).trim();
+            if (mobileNo && mobileNo.toLowerCase() !== 'null' && mobileNo.toLowerCase() !== 'undefined') {
+                const farmerSql = `SELECT DISTRICT FROM KSNDMC.REWARD_FARMER_DETAILS WHERE MOBILE_NO = :mobileNo`;
+                const farmerRes = await connection.execute(farmerSql, { mobileNo }, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+                if (farmerRes.rows.length > 0) {
+                    const district = farmerRes.rows[0].DISTRICT;
+                    const regionSql = `SELECT REWARD_REGION FROM KSNDMC.REWARD_REGION_MASTER WHERE UPPER(DISTRICT) = UPPER(:district) AND rownum <= 1`;
+                    const regionRes = await connection.execute(regionSql, { district }, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+                    if (regionRes.rows.length > 0) {
+                        regionCode = regionRes.rows[0].REWARD_REGION;
+                    }
+                }
             }
         }
 
@@ -502,8 +517,7 @@ exports.getCropMaster = async (req, res) => {
               AND (
                   EXISTS (
                       SELECT 1 FROM KSNDMC.BLOCKING_PERIOD b
-                      WHERE UPPER(b.REGION_CODE) LIKE '%' || :region_filter || '%'
-                        AND b.IS_ACTIVE = 'Y'
+                      WHERE b.IS_ACTIVE = 'Y'
                         AND (
                             UPPER(b.CROP_NAME) = UPPER(m.CROP_NAME)
                             OR (UPPER(m.CROP_NAME) = 'RAGI' AND UPPER(b.CROP_NAME) = 'FINGER MILLET')
@@ -514,8 +528,7 @@ exports.getCropMaster = async (req, res) => {
                   OR
                   EXISTS (
                       SELECT 1 FROM KSNDMC.FIELD_CROPS_ADVISORY f
-                      WHERE UPPER(f.REGION_CODE) LIKE '%' || :region_filter || '%'
-                        AND f.IS_ACTIVE = 'Y'
+                      WHERE f.IS_ACTIVE = 'Y'
                         AND (
                             UPPER(f.CROP_NAME) = UPPER(m.CROP_NAME)
                             OR (UPPER(m.CROP_NAME) = 'RAGI' AND UPPER(f.CROP_NAME) = 'FINGER MILLET')
@@ -526,20 +539,17 @@ exports.getCropMaster = async (req, res) => {
                   OR
                   EXISTS (
                       SELECT 1 FROM KSNDMC.HORTI_WEEKS_CROPS_ADVISORY hw
-                      WHERE (UPPER(hw.CROP_NAME) = UPPER(m.CROP_NAME) OR UPPER(hw.CROP_NAME) LIKE UPPER(m.CROP_NAME) || '%')
-                        AND UPPER(hw.REGION_CODE) LIKE '%' || :region_filter || '%'
+                      WHERE (REPLACE(UPPER(hw.CROP_NAME), ' ', '') = REPLACE(UPPER(m.CROP_NAME), ' ', '') OR REPLACE(UPPER(hw.CROP_NAME), ' ', '') LIKE REPLACE(UPPER(m.CROP_NAME), ' ', '') || '%')
                         AND hw.IS_ACTIVE = 'Y'
                   )
                   OR
                   EXISTS (
                       SELECT 1 FROM KSNDMC.HORTI_MONTHS_CROPS_ADVISORY hm
-                      WHERE (UPPER(hm.CROP_NAME) = UPPER(m.CROP_NAME) OR UPPER(hm.CROP_NAME) LIKE UPPER(m.CROP_NAME) || '%')
-                        AND UPPER(hm.REGION_CODE) LIKE '%' || :region_filter || '%'
+                      WHERE (REPLACE(UPPER(hm.CROP_NAME), ' ', '') = REPLACE(UPPER(m.CROP_NAME), ' ', '') OR REPLACE(UPPER(hm.CROP_NAME), ' ', '') LIKE REPLACE(UPPER(m.CROP_NAME), ' ', '') || '%')
                         AND hm.IS_ACTIVE = 'Y'
                   )
               )
             `;
-            binds.region_filter = region;
         }
 
         sql += ` ORDER BY CROP_NAME_KN`;
