@@ -704,7 +704,7 @@ const ContingencyCropPlan = {
         SELECT DISTINCT MONTH_IN_NUMBER
         FROM KSNDMC.HORTI_MONTHS_CROPS_ADVISORY
         WHERE (UPPER(CROP_NAME) = UPPER(:crop) OR UPPER(CROP_NAME) LIKE UPPER(:crop) || '%')
-          AND UPPER(GROWTH_STAGE) = 'PLANTING'
+          AND (UPPER(GROWTH_STAGE) = 'PLANTING' OR UPPER(GROWTH_STAGE) = 'ESTABLISHMENT STAGE')
           AND UPPER(REGION_CODE) LIKE '%' || UPPER(:regionCode) || '%'
           AND IS_ACTIVE = 'Y'
           AND rownum <= 1

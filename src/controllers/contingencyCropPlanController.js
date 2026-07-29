@@ -12,7 +12,7 @@ const HORTI_MONTHS_CROPS = [
   'MANGO', 'GRAPES', 'POMEGRANATE', 'GUAVA', 'SAPOTA', 'JACKFRUIT', 'PAPAYA',
   'COCONUT', 'ARECA NUT', 'ARECANUT', 'CASHEW NUT', 'CASHEWNUT', 'CASHEW',
   'BLACK PEPPER', 'BLACKPEPPER', 'CARDAMOM', 'CARDMOM', 'LEMON', 'BETELVINE',
-  'BEETLEVINE', 'DRUMSTICK'
+  'BEETLEVINE', 'BETEL VINE', 'DRUMSTICK'
 ];
 
 function normalizeHortiCropNameForAdvisory(cropName) {
@@ -129,7 +129,10 @@ async function isHortiMonthDateAllowed(crop, region, targetDate) {
 
 function normalizeCropName(cropName, tableType, region) {
   if (!cropName) return '';
-  const upper = cropName.toUpperCase().trim();
+  let upper = cropName.toUpperCase().trim();
+  if (upper === 'BROWNTOP MILLET' || upper === 'BROWNTOPMILLET' || upper === 'BROWNTOP_MILLET' || upper === 'BROWN TOP MILLET') {
+    upper = 'BROWN TOP MILLET';
+  }
   const cleanRegion = region ? region.toUpperCase().trim() : '';
 
   if (tableType === 'BLOCKING') {
@@ -151,7 +154,7 @@ function normalizeCropName(cropName, tableType, region) {
   if (tableType === 'ADVISORY') {
     if (upper === 'FINGER MILLET') return 'RAGI';
     if (upper === 'RICE (IR)' || upper === 'RICE(IR)' || upper === 'RICE') {
-      return (cleanRegion.includes('NIK') || cleanRegion === '2.NIK') ? 'PADDY' : 'RICE';
+      return (cleanRegion.includes('NIK') || cleanRegion === '2.NIK') ? 'RICE (IR)' : 'RICE';
     }
     return upper;
   }
@@ -169,23 +172,29 @@ const SOWING_RULES = {
       if (month < 5 || (month === 5 && day < 15)) return 'MAY 15 - JUNE 30';
       return 'August 1 - August 20';
     },
-    GREENGRAM: () => 'January-February & April-May',
-    SORGHUM: () => 'September 15 to October 15',
+    GREENGRAM: () => 'JAN-FEB -MAY',
+    SORGHUM: () => 'SEP 15 To OCT 15',
     'FOXTAIL MILLET': (month) => {
       if (month === 1) return 'January';
       if (month === 5) return 'May-August';
       return 'June-August';
     },
     SUGARCANE: (month) => {
-      if (month === 1 || month === 2) return 'January-February';
-      if (month === 7 || month === 8) return 'July-August';
-      return 'Oct-November';
+      if (month === 1 || month === 2) return 'JAN-FEB';
+      if (month === 7 || month === 8) return 'JULY-AUG';
+      return 'OCT-NOV';
     },
     FIELDBEAN: () => 'FEB-AUG-SEP',
     CASTOR: (month) => (month === 7 ? 'MAY-JULY' : 'MAY-JUNE'),
     'PROSO MILLET': (month) => (month === 5 ? 'May-July' : 'June-July'),
-    RAGI: (month, day) => resolveRagiSowing(month, day),
-    'FINGER MILLET': (month, day) => resolveRagiSowing(month, day),
+    RAGI: () => 'JUNE-JULY',
+    'FINGER MILLET': () => 'JUNE-JULY',
+    'RICE (IR)': () => 'JULY-AUG',
+    RICE: () => 'JULY-AUG',
+    BLACKGRAM: () => 'JAN-FEB',
+    COWPEA: () => 'AUG-SEP',
+    'KODO MILLET': () => 'MAY-JULY',
+    'LITTLE MILLET': () => 'MAY-JULY',
     'BARNYARD MILLET': () => 'MAY-JULY',
     'BROWN TOP MILLET': () => 'MAY-JULY',
     MAIZE: () => 'JUNE-JULY',
@@ -196,7 +205,7 @@ const SOWING_RULES = {
     SORGHUM: () => 'June, Sept 15 - Oct 15',
     SUGARCANE: () => 'Jul-Aug, Oct-Nov',
     SOYABEAN: () => 'JULY-15',
-    COWPEA: () => 'JULY - AUGUST',
+    COWPEA: () => 'JULY - AUGUST ',
     'RICE (IR)': () => 'June-July, October',
     RICE: () => 'June-July, October',
     PADDY: () => 'June-July, October',
@@ -211,17 +220,12 @@ const SOWING_RULES = {
     CHICKPEA: () => '  OCTOBER - NOVEMBER',
     WHEAT: () => 'Oct 15 - Nov 15',
     SUNFLOWER: () => 'AUG  (KHARIF), SEP-OCT (RABI)',
-    'BROWN TOP MILLET': () => 'MAY-JULY'
+    'BROWN TOP MILLET': () => 'MAY-JULY',
+    'FOXTAIL MILLET': () => 'June-July',
+    GREENGRAM: () => 'JUNE - JULY',
+    REDGRAM: () => 'JUNE-JULY'
   }
 };
-
-function resolveRagiSowing(month, day) {
-  if (month === 6) return 'June-July';
-  if (month === 7) return day <= 15 ? 'June-July' : 'July-August';
-  if (month === 8) return day <= 15 ? 'July-August' : 'August-September';
-  if (month === 9) return 'August-September';
-  return 'June-July';
-}
 
 function resolveSowingMonth(crop, region, sowingDate, blockingPeriod) {
   const upperCrop = crop.toUpperCase().trim();
